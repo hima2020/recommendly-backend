@@ -63,6 +63,9 @@ dependencies {
     implementation("io.insert-koin:koin-ktor:$koin_version")
     implementation("io.insert-koin:koin-logger-slf4j:$koin_version")
 
+    // ── Password hashing ─────────────────────────────────────────────────────
+    implementation("at.favre.lib:bcrypt:0.10.2")
+
     // ── Logging ──────────────────────────────────────────────────────────────
     implementation("ch.qos.logback:logback-classic:$logback_version")
     implementation("io.github.microutils:kotlin-logging-jvm:3.0.5")

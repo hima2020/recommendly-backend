@@ -64,6 +64,7 @@ object DatabaseFactory {
             .dataSource(dataSource)
             .locations("classpath:db/migration")
             .baselineOnMigrate(true)
+            .baselineVersion("0")   // ← treat "0" as baseline so V1+ all run
             .load()
             .migrate()
     }
