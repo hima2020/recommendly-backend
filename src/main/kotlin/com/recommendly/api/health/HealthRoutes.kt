@@ -7,25 +7,19 @@ import io.ktor.server.routing.*
 import kotlinx.serialization.Serializable
 import mu.KotlinLogging
 import org.jetbrains.exposed.sql.transactions.transaction
-import org.koin.ktor.ext.inject
 
 private val logger = KotlinLogging.logger {}
 
 /**
- * Health check endpoints — the first routes we build and the last we remove.
+ * Health check endpoints.
  *
- * Why health checks matter in production:
- * - Docker uses them to know when a container is ready to serve traffic
- * - Load balancers use them to route away from unhealthy instances
- * - Monitoring systems (Grafana, etc.) alert when they fail
- * - GitHub Actions deployment waits for a healthy response before finishing
+ * Dependencies are passed as parameters (injected at Application level in Routing.kt)
+ * to avoid Koin Route-level injection issues with Ktor 3.x.
  *
- * Two endpoints:
- * GET /api/v1/health        — quick liveness check (is the server running?)
- * GET /api/v1/health/ready  — full readiness check (DB + Redis connected?)
+ * GET /api/v1/health        — liveness (is the server running?)
+ * GET /api/v1/health/ready  — readiness (DB + Redis connected?)
  */
-fun Route.healthRoutes() {
-    val redis by inject<RedisFactory>()
+fun Route.healthRoutes(redis: RedisFactory) {
 
     route("/health") {
 
@@ -41,7 +35,9 @@ fun Route.healthRoutes() {
 
             // Check PostgreSQL
             try {
-                transaction { /* simple connection test */ }
+                transaction {
+                    exec("SELECT 1")
+                }
                 checks["database"] = "UP"
             } catch (e: Exception) {
                 logger.error(e) { "Database health check failed" }
@@ -61,10 +57,13 @@ fun Route.healthRoutes() {
             }
 
             val status = if (allHealthy) HttpStatusCode.OK else HttpStatusCode.ServiceUnavailable
-            call.respond(status, ReadinessResponse(
-                status = if (allHealthy) "UP" else "DEGRADED",
-                checks = checks
-            ))
+            call.respond(
+                status,
+                ReadinessResponse(
+                    status = if (allHealthy) "UP" else "DEGRADED",
+                    checks = checks
+                )
+            )
         }
     }
 }

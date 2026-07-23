@@ -1,21 +1,24 @@
 package com.recommendly.plugins
 
 import com.recommendly.api.health.healthRoutes
+import com.recommendly.common.cache.RedisFactory
 import io.ktor.server.application.*
 import io.ktor.server.routing.*
+import org.koin.ktor.ext.inject
 
 /**
  * Central routing registry.
  *
- * Every feature registers its routes here under the /api/v1 prefix.
- * This gives us:
- * - API versioning from day one (easy to add /api/v2 later)
- * - A single file to see all available endpoints at a glance
+ * Dependencies are injected at the Application level (where Koin works reliably
+ * in Ktor 3.x) and passed down to route functions as parameters.
+ * This avoids the Koin Route-level injection issue with Ktor 3.x.
  */
 fun Application.configureRouting() {
+    val redis by inject<RedisFactory>()
+
     routing {
         route("/api/v1") {
-            healthRoutes()
+            healthRoutes(redis)
             // authRoutes()    ← Phase 2
             // userRoutes()    ← Phase 2
             // stockRoutes()   ← Phase 3
