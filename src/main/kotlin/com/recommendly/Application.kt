@@ -16,10 +16,7 @@ fun Application.module() {
     configureDatabase()
     configureSerialization()
     configureHTTP()
-    configureSecurity(
-        // Extract JwtConfig from the already-loaded AppConfig in Koin
-        jwtConfig = org.koin.ktor.ext.get<com.recommendly.common.config.AppConfig>().jwt
-    )
+    configureSecurity()   // reads AppConfig from Koin internally
     configureStatusPages()
     configureRouting()
 }

@@ -6,6 +6,7 @@ import com.recommendly.common.database.tables.UsersTable
 import mu.KotlinLogging
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.greater
 import java.time.OffsetDateTime
 import java.util.UUID
 
@@ -25,21 +26,24 @@ class AuthRepository {
 
     suspend fun findUserByEmail(email: String): UserRecord? = dbQuery {
         UsersTable
-            .select { UsersTable.email eq email.lowercase() }
+            .selectAll()
+            .where { UsersTable.email eq email.lowercase() }
             .singleOrNull()
             ?.toUserRecord()
     }
 
     suspend fun findUserById(id: UUID): UserRecord? = dbQuery {
         UsersTable
-            .select { UsersTable.id eq id }
+            .selectAll()
+            .where { UsersTable.id eq id }
             .singleOrNull()
             ?.toUserRecord()
     }
 
     suspend fun emailExists(email: String): Boolean = dbQuery {
         UsersTable
-            .select { UsersTable.email eq email.lowercase() }
+            .selectAll()
+            .where { UsersTable.email eq email.lowercase() }
             .count() > 0
     }
 
@@ -57,7 +61,8 @@ class AuthRepository {
         } get UsersTable.id
 
         UsersTable
-            .select { UsersTable.id eq id }
+            .selectAll()
+            .where { UsersTable.id eq id }
             .single()
             .toUserRecord()
     }
@@ -80,7 +85,8 @@ class AuthRepository {
     suspend fun findValidRefreshToken(tokenHash: String): UUID? = dbQuery {
         val now = OffsetDateTime.now()
         RefreshTokensTable
-            .select {
+            .selectAll()
+            .where {
                 (RefreshTokensTable.tokenHash eq tokenHash) and
                 (RefreshTokensTable.expiresAt greater now)
             }

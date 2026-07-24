@@ -2,10 +2,11 @@ package com.recommendly.plugins
 
 import com.auth0.jwt.JWT
 import com.auth0.jwt.algorithms.Algorithm
-import com.recommendly.common.config.JwtConfig
+import com.recommendly.common.config.AppConfig
 import io.ktor.server.application.*
 import io.ktor.server.auth.*
 import io.ktor.server.auth.jwt.*
+import org.koin.ktor.ext.inject
 
 /**
  * Installs JWT authentication so protected routes can use `authenticate("jwt") { }`.
@@ -19,7 +20,9 @@ import io.ktor.server.auth.jwt.*
  * Routes that need auth:  `authenticate("jwt") { get("/me") { ... } }`
  * Get userId in a route:  `call.principal<JWTPrincipal>()?.subject`
  */
-fun Application.configureSecurity(jwtConfig: JwtConfig) {
+fun Application.configureSecurity() {
+    val appConfig by inject<AppConfig>()
+    val jwtConfig = appConfig.jwt
     val algorithm = Algorithm.HMAC256(jwtConfig.secret)
 
     install(Authentication) {
