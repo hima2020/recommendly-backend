@@ -2,8 +2,8 @@ package com.recommendly.plugins
 
 import com.recommendly.api.auth.AuthRepository
 import com.recommendly.api.auth.AuthService
-import com.recommendly.api.stocks.StockRepository
 import com.recommendly.api.stocks.StockService
+import com.recommendly.common.stockdata.YahooFinanceService
 import com.recommendly.api.users.UserRepository
 import com.recommendly.api.users.UserService
 import com.recommendly.common.cache.RedisFactory
@@ -64,9 +64,11 @@ val userModule = module {
 }
 
 /**
- * Stocks module — public stock listing and detail endpoints.
+ * Stocks module — live quotes and candle data via Yahoo Finance + Redis cache.
+ * StockService receives YahooFinanceService (external HTTP) + RedisFactory (cache).
+ * RedisFactory is already in infrastructureModule so get<RedisFactory>() resolves it.
  */
 val stockModule = module {
-    single { StockRepository() }
-    single { StockService(get()) }
+    single { YahooFinanceService() }
+    single { StockService(get(), get()) }
 }

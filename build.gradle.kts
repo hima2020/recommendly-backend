@@ -56,6 +56,11 @@ dependencies {
     implementation("org.flywaydb:flyway-core:10.17.3")
     implementation("org.flywaydb:flyway-database-postgresql:10.17.3")
 
+    // ── Ktor HTTP Client (calls external stock-data APIs) ────────────────────
+    implementation("io.ktor:ktor-client-core:$ktor_version")
+    implementation("io.ktor:ktor-client-cio:$ktor_version")
+    implementation("io.ktor:ktor-client-content-negotiation:$ktor_version")
+
     // ── Cache – Redis (Lettuce async client) ─────────────────────────────────
     implementation("io.lettuce:lettuce-core:6.3.2.RELEASE")
 

@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Recommendly · API Dashboard</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
   <style>
     body { font-family: 'Segoe UI', system-ui, sans-serif; }
     .response-box { white-space: pre-wrap; word-break: break-all; font-family: 'Courier New', monospace; font-size: 12px; }
@@ -26,6 +27,18 @@
     .pulse { animation: pulse-dot 1.5s infinite; }
     .spinner { animation: spin 0.8s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
+    /* ── Ticker bar ── */
+    @keyframes ticker-scroll { 0% { transform:translateX(0); } 100% { transform:translateX(-50%); } }
+    #ticker-track { display:flex; width:max-content; will-change:transform; }
+    #ticker-track.running { animation: ticker-scroll 80s linear infinite; }
+    #ticker-track:hover { animation-play-state: paused; }
+    /* ── Period buttons ── */
+    .period-btn { cursor:pointer; transition:all 0.15s; }
+    .period-btn.active { background:#6366f1; color:white; border-color:#6366f1; }
+    /* ── Stock grid cards ── */
+    .stock-card { cursor:pointer; transition:all 0.15s; }
+    .stock-card:hover { border-color:#6366f1 !important; }
+    .stock-card.selected { background:#312e81 !important; border-color:#6366f1 !important; }
   </style>
 </head>
 <body class="bg-gray-950 text-gray-200 min-h-screen">
@@ -217,90 +230,111 @@
     </div>
 
     <!-- ═══ STOCKS SECTION ═══ -->
-    <div id="section-stocks" class="space-y-4 hidden">
-      <h2 class="text-lg font-bold text-white mb-4">📈 Stocks</h2>
-      <p class="text-sm text-gray-500 -mt-2 mb-4">Public endpoints — no login required.</p>
+    <div id="section-stocks" class="hidden space-y-4">
 
-      <!-- List / Search -->
-      <div class="endpoint-card bg-gray-900 border border-gray-800 rounded-xl p-5">
-        <div class="flex items-center gap-3 mb-4">
-          <span class="badge-get text-xs font-bold px-2 py-1 rounded">GET</span>
-          <code class="text-gray-300 text-sm">/api/v1/stocks</code>
-          <span class="ml-auto text-xs text-gray-500">List & search stocks</span>
+      <!-- Loading state -->
+      <div id="stocks-loading" class="flex items-center justify-center py-24">
+        <div class="text-center">
+          <div class="w-10 h-10 border-2 border-indigo-500 border-t-transparent rounded-full mx-auto mb-4 spinner"></div>
+          <div class="text-gray-400 text-sm">Fetching live market data…</div>
         </div>
-        <div class="grid grid-cols-4 gap-3 mb-3">
-          <div>
-            <label class="text-xs text-gray-500 block mb-1">Search (name / symbol)</label>
-            <input id="stocks-search" type="text" placeholder="e.g. apple or AAPL"
-              class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white" />
-          </div>
-          <div>
-            <label class="text-xs text-gray-500 block mb-1">Sector</label>
-            <select id="stocks-sector"
-              class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white">
-              <option value="">All sectors</option>
-              <option>Technology</option>
-              <option>Financials</option>
-              <option>Healthcare</option>
-              <option>Consumer</option>
-              <option>Energy</option>
-              <option>Telecom</option>
-            </select>
-          </div>
-          <div>
-            <label class="text-xs text-gray-500 block mb-1">Limit</label>
-            <input id="stocks-limit" type="number" value="20" min="1" max="100"
-              class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white" />
-          </div>
-          <div>
-            <label class="text-xs text-gray-500 block mb-1">Offset</label>
-            <input id="stocks-offset" type="number" value="0" min="0"
-              class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white" />
-          </div>
-        </div>
-        <button onclick="doListStocks()" class="bg-green-800 hover:bg-green-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
-          Fetch Stocks →
-        </button>
-        <!-- Compact stock table rendered inline after response -->
-        <div id="stocks-table-container" class="hidden mt-4">
-          <div class="text-xs text-gray-500 mb-2" id="stocks-count"></div>
-          <div class="overflow-x-auto rounded-lg border border-gray-800">
-            <table class="w-full text-sm">
-              <thead class="bg-gray-800 text-gray-400 text-xs uppercase">
-                <tr>
-                  <th class="px-3 py-2 text-left">Symbol</th>
-                  <th class="px-3 py-2 text-left">Name</th>
-                  <th class="px-3 py-2 text-left">Exchange</th>
-                  <th class="px-3 py-2 text-left">Sector</th>
-                  <th class="px-3 py-2 text-right">Price</th>
-                  <th class="px-3 py-2 text-right">24h</th>
-                </tr>
-              </thead>
-              <tbody id="stocks-table-body" class="divide-y divide-gray-800"></tbody>
-            </table>
-          </div>
-        </div>
-        <div id="stocks-list-response" class="mt-3 hidden"></div>
       </div>
 
-      <!-- Detail by symbol -->
-      <div class="endpoint-card bg-gray-900 border border-gray-800 rounded-xl p-5">
-        <div class="flex items-center gap-3 mb-4">
-          <span class="badge-get text-xs font-bold px-2 py-1 rounded">GET</span>
-          <code class="text-gray-300 text-sm">/api/v1/stocks/<span class="text-indigo-400">{symbol}</span></code>
-          <span class="ml-auto text-xs text-gray-500">Full stock detail</span>
+      <!-- Main content — hidden until data loaded -->
+      <div id="stocks-content" class="hidden space-y-4">
+
+        <!-- ── Ticker bar ─────────────────────────────────────────────────── -->
+        <div class="relative overflow-hidden bg-gray-900 border border-gray-800 rounded-xl py-3">
+          <div class="overflow-hidden px-8">
+            <div id="ticker-track"></div>
+          </div>
+          <!-- Fade edges -->
+          <div class="absolute left-0 top-0 bottom-0 w-10 bg-gradient-to-r from-gray-900 to-transparent pointer-events-none z-10"></div>
+          <div class="absolute right-0 top-0 bottom-0 w-10 bg-gradient-to-l from-gray-900 to-transparent pointer-events-none z-10"></div>
         </div>
-        <div class="mb-3 max-w-xs">
-          <label class="text-xs text-gray-500 block mb-1">Ticker Symbol</label>
-          <input id="stock-symbol" type="text" placeholder="e.g. AAPL" value="AAPL"
-            class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white uppercase" />
+
+        <!-- ── Chart panel ─────────────────────────────────────────────────── -->
+        <div class="bg-gray-900 border border-gray-800 rounded-xl p-5">
+
+          <!-- Header: symbol info + period buttons -->
+          <div class="flex items-start justify-between flex-wrap gap-4 mb-5">
+            <div>
+              <div class="flex items-center gap-3 mb-2 flex-wrap">
+                <span id="chart-symbol" class="text-3xl font-bold text-white font-mono tracking-tight">—</span>
+                <div>
+                  <div id="chart-name" class="text-gray-300 text-sm font-medium leading-none mb-0.5"></div>
+                  <span id="chart-exchange" class="text-xs text-gray-600 border border-gray-700 px-2 py-0.5 rounded font-mono"></span>
+                </div>
+              </div>
+              <div class="flex items-baseline gap-3">
+                <span id="chart-price" class="text-4xl font-bold text-white font-mono">—</span>
+                <span id="chart-change" class="text-lg font-semibold"></span>
+                <span id="chart-change-pct" class="text-sm text-gray-500"></span>
+              </div>
+            </div>
+            <!-- Period selector -->
+            <div class="flex gap-1.5 flex-wrap">
+              <button class="period-btn px-3 py-1.5 rounded text-xs font-semibold border border-gray-700 text-gray-400" data-period="1d">1D</button>
+              <button class="period-btn px-3 py-1.5 rounded text-xs font-semibold border border-gray-700 text-gray-400" data-period="5d">5D</button>
+              <button class="period-btn active px-3 py-1.5 rounded text-xs font-semibold border" data-period="3mo">3M</button>
+              <button class="period-btn px-3 py-1.5 rounded text-xs font-semibold border border-gray-700 text-gray-400" data-period="6mo">6M</button>
+              <button class="period-btn px-3 py-1.5 rounded text-xs font-semibold border border-gray-700 text-gray-400" data-period="1y">1Y</button>
+              <button class="period-btn px-3 py-1.5 rounded text-xs font-semibold border border-gray-700 text-gray-400" data-period="5y">5Y</button>
+            </div>
+          </div>
+
+          <!-- Candlestick chart (TradingView Lightweight Charts) -->
+          <div id="chart-container" class="rounded-lg w-full" style="height:380px;"></div>
+
+          <!-- Volume histogram (same time axis, separate panel) -->
+          <div id="volume-container" class="rounded-lg w-full mt-1" style="height:80px;"></div>
+
+          <!-- Crosshair OHLCV readout -->
+          <div id="crosshair-row" class="flex gap-4 text-xs text-gray-500 font-mono mt-2 min-h-4">
+            <span id="xhair-time"></span>
+            <span id="xhair-o">O <span class="text-gray-300">—</span></span>
+            <span id="xhair-h">H <span class="text-gray-300">—</span></span>
+            <span id="xhair-l">L <span class="text-gray-300">—</span></span>
+            <span id="xhair-c">C <span class="text-gray-300">—</span></span>
+            <span id="xhair-v">Vol <span class="text-gray-300">—</span></span>
+          </div>
+
+          <!-- Daily stats cards -->
+          <div class="grid grid-cols-5 gap-3 mt-4">
+            <div class="bg-gray-800 rounded-lg p-3">
+              <div class="text-xs text-gray-500 mb-1">Open</div>
+              <div id="stat-open" class="text-sm font-mono font-bold text-gray-200">—</div>
+            </div>
+            <div class="bg-gray-800 rounded-lg p-3">
+              <div class="text-xs text-gray-500 mb-1">High</div>
+              <div id="stat-high" class="text-sm font-mono font-bold text-green-400">—</div>
+            </div>
+            <div class="bg-gray-800 rounded-lg p-3">
+              <div class="text-xs text-gray-500 mb-1">Low</div>
+              <div id="stat-low" class="text-sm font-mono font-bold text-red-400">—</div>
+            </div>
+            <div class="bg-gray-800 rounded-lg p-3">
+              <div class="text-xs text-gray-500 mb-1">Volume</div>
+              <div id="stat-vol" class="text-sm font-mono font-bold text-gray-200">—</div>
+            </div>
+            <div class="bg-gray-800 rounded-lg p-3">
+              <div class="text-xs text-gray-500 mb-1">Mkt Cap</div>
+              <div id="stat-cap" class="text-sm font-mono font-bold text-gray-200">—</div>
+            </div>
+          </div>
         </div>
-        <button onclick="doGetStock()" class="bg-green-800 hover:bg-green-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
-          Get Detail →
-        </button>
-        <div id="stock-detail-response" class="mt-3 hidden"></div>
-      </div>
-    </div>
+
+        <!-- ── Stock grid ──────────────────────────────────────────────────── -->
+        <div class="bg-gray-900 border border-gray-800 rounded-xl p-5">
+          <div class="flex items-center justify-between mb-3">
+            <div class="text-sm font-semibold text-gray-300">All Tracked Stocks</div>
+            <button onclick="refreshStockQuotes()" class="text-xs text-indigo-400 hover:text-indigo-300 transition-colors">↻ Refresh prices</button>
+          </div>
+          <div id="stock-grid" class="grid gap-2" style="grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));"></div>
+        </div>
+
+      </div><!-- /stocks-content -->
+    </div><!-- /section-stocks -->
 
     <!-- ═══ HEALTH SECTION ═══ -->
     <div id="section-health" class="space-y-4 hidden">
@@ -354,6 +388,9 @@ document.querySelectorAll('.section-tab').forEach(tab => {
 
     document.querySelectorAll('[id^="section-"]').forEach(s => s.classList.add('hidden'));
     document.getElementById('section-' + tab.dataset.section).classList.remove('hidden');
+
+    // Auto-load live stock data the first time the Stocks tab is opened
+    if (tab.dataset.section === 'stocks') initStocks();
   });
 });
 
@@ -505,63 +542,224 @@ async function doHealthReady() {
   showResponse('health-ready-response', status, data, ms);
 }
 
-// ── Stocks endpoints ──────────────────────────────────────────────────────────
-async function doListStocks() {
-  const search = document.getElementById('stocks-search').value.trim();
-  const sector = document.getElementById('stocks-sector').value;
-  const limit  = document.getElementById('stocks-limit').value  || 20;
-  const offset = document.getElementById('stocks-offset').value || 0;
+// ── Stocks — live market data ─────────────────────────────────────────────────
+let stockQuotes   = [];
+let currentSymbol = 'AAPL';
+let currentPeriod = '3mo';
+let lwChart       = null;
+let candleSeries  = null;
+let volumeSeries  = null;
+let stocksInit    = false;
+let quoteTimer    = null;
 
-  let url = `/api/v1/stocks?limit=${limit}&offset=${offset}`;
-  if (search) url += `&search=${encodeURIComponent(search)}`;
-  if (sector) url += `&sector=${encodeURIComponent(sector)}`;
+// Called once when the Stocks tab is first clicked
+async function initStocks() {
+  if (stocksInit) return;
+  stocksInit = true;
+  initChart();
+  await refreshStockQuotes();
+  await loadStock('AAPL', '3mo');
+  // Auto-refresh quotes every 60 seconds
+  quoteTimer = setInterval(refreshStockQuotes, 60_000);
+}
 
-  const { status, data, ms } = await apiCall('GET', url);
-  showResponse('stocks-list-response', status, data, ms);
-
-  if (status === 200 && data.data?.length > 0) {
-    document.getElementById('stocks-table-container').classList.remove('hidden');
-    document.getElementById('stocks-list-response').classList.add('hidden');
-    document.getElementById('stocks-count').textContent =
-      `Showing ${data.data.length} of ${data.total} stocks`;
-
-    const tbody = document.getElementById('stocks-table-body');
-    tbody.innerHTML = data.data.map(s => {
-      const price   = s.currentPrice  != null ? `$${s.currentPrice.toFixed(2)}` : '—';
-      const chg     = s.changePercent != null ? s.changePercent.toFixed(2)      : null;
-      const chgHtml = chg == null ? '<td class="px-3 py-2 text-right text-gray-500">—</td>'
-        : chg >= 0
-          ? `<td class="px-3 py-2 text-right text-green-400">▲ ${chg}%</td>`
-          : `<td class="px-3 py-2 text-right text-red-400">▼ ${Math.abs(chg)}%</td>`;
-      return `<tr class="hover:bg-gray-800 cursor-pointer" onclick="document.getElementById('stock-symbol').value='${s.symbol}'; switchSection('stocks')">
-        <td class="px-3 py-2 font-mono font-bold text-indigo-400">${s.symbol}</td>
-        <td class="px-3 py-2 text-gray-200">${escapeHtml(s.name)}</td>
-        <td class="px-3 py-2 text-gray-400 text-xs">${s.exchange}</td>
-        <td class="px-3 py-2 text-gray-400 text-xs">${s.sector ?? '—'}</td>
-        <td class="px-3 py-2 text-right text-gray-200">${price}</td>
-        ${chgHtml}
-      </tr>`;
-    }).join('');
-  } else {
-    document.getElementById('stocks-table-container').classList.add('hidden');
+async function refreshStockQuotes() {
+  const { status, data } = await apiCall('GET', '/api/v1/stocks');
+  if (status === 200 && Array.isArray(data) && data.length > 0) {
+    stockQuotes = data;
+    renderTicker();
+    renderStockGrid();
+    document.getElementById('stocks-loading').classList.add('hidden');
+    document.getElementById('stocks-content').classList.remove('hidden');
   }
 }
 
-async function doGetStock() {
-  const symbol = document.getElementById('stock-symbol').value.trim().toUpperCase();
-  if (!symbol) return;
-  const { status, data, ms } = await apiCall('GET', `/api/v1/stocks/${symbol}`);
-  showResponse('stock-detail-response', status, data, ms);
+// ── Ticker bar ────────────────────────────────────────────────────────────────
+function renderTicker() {
+  const items = stockQuotes.map(q => {
+    const pct   = q.changePercent ?? 0;
+    const pos   = pct >= 0;
+    const color = pos ? 'text-green-400' : 'text-red-400';
+    const arrow = pos ? '▲' : '▼';
+    return `<span class="inline-flex items-center gap-2 px-5 border-r border-gray-800 shrink-0 cursor-pointer hover:bg-gray-800 py-0.5 transition-colors" onclick="loadStock('${q.symbol}')">
+      <span class="font-mono font-bold text-sm text-indigo-300">${q.symbol}</span>
+      <span class="text-sm text-gray-200 font-mono">$${q.price.toFixed(2)}</span>
+      <span class="text-xs ${color}">${arrow} ${Math.abs(pct).toFixed(2)}%</span>
+    </span>`;
+  }).join('');
+
+  const track = document.getElementById('ticker-track');
+  track.innerHTML = items + items; // duplicate = seamless infinite scroll
+  track.classList.remove('running');
+  void track.offsetWidth; // force reflow to restart animation
+  track.classList.add('running');
 }
 
-function switchSection(name) {
-  document.querySelectorAll('.section-tab').forEach(t => {
-    const active = t.dataset.section === name;
-    t.classList.toggle('active', active);
-    t.classList.toggle('text-gray-400', !active);
+// ── Stock grid ────────────────────────────────────────────────────────────────
+function renderStockGrid() {
+  const grid = document.getElementById('stock-grid');
+  grid.innerHTML = stockQuotes.map(q => {
+    const pct   = q.changePercent ?? 0;
+    const pos   = pct >= 0;
+    const col   = pos ? 'text-green-400' : 'text-red-400';
+    const arrow = pos ? '▲' : '▼';
+    const sel   = q.symbol === currentSymbol ? 'selected' : '';
+    return `<button class="stock-card ${sel} text-left p-2 rounded-lg border border-gray-700 bg-gray-800"
+        data-symbol="${q.symbol}" onclick="loadStock('${q.symbol}')">
+      <div class="font-mono font-bold text-xs text-indigo-400 truncate">${q.symbol}</div>
+      <div class="text-xs font-mono text-gray-200 mt-0.5">$${q.price.toFixed(2)}</div>
+      <div class="text-xs ${col} mt-0.5">${arrow} ${Math.abs(pct).toFixed(2)}%</div>
+    </button>`;
+  }).join('');
+}
+
+// ── Chart ─────────────────────────────────────────────────────────────────────
+function initChart() {
+  const cc = document.getElementById('chart-container');
+  const vc = document.getElementById('volume-container');
+
+  // Candlestick chart
+  lwChart = LightweightCharts.createChart(cc, {
+    width:  cc.clientWidth,
+    height: 380,
+    layout: { background: { color: '#0d1117' }, textColor: '#8b949e' },
+    grid:   { vertLines: { color: '#21262d' }, horzLines: { color: '#21262d' } },
+    crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+    rightPriceScale: { borderColor: '#30363d' },
+    timeScale: { borderColor: '#30363d', timeVisible: true, secondsVisible: false }
   });
-  document.querySelectorAll('[id^="section-"]').forEach(s => s.classList.add('hidden'));
-  document.getElementById('section-' + name).classList.remove('hidden');
+
+  candleSeries = lwChart.addCandlestickSeries({
+    upColor: '#3fb950', downColor: '#f85149',
+    borderVisible: false,
+    wickUpColor: '#3fb950', wickDownColor: '#f85149'
+  });
+
+  // Volume chart (separate chart, same time axis)
+  const volChart = LightweightCharts.createChart(vc, {
+    width:  vc.clientWidth,
+    height: 80,
+    layout: { background: { color: '#0d1117' }, textColor: '#8b949e' },
+    grid:   { vertLines: { color: '#21262d' }, horzLines: { color: 'transparent' } },
+    crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+    rightPriceScale: { borderColor: '#30363d', scaleMargins: { top: 0, bottom: 0 } },
+    timeScale: { borderColor: '#30363d', visible: false },
+    handleScroll: false,
+    handleScale:  false
+  });
+
+  volumeSeries = volChart.addHistogramSeries({
+    priceFormat: { type: 'volume' },
+    priceScaleId: 'volume'
+  });
+
+  volChart.priceScale('volume').applyOptions({ scaleMargins: { top: 0.1, bottom: 0 } });
+
+  // Keep volume chart time range in sync with candle chart
+  lwChart.timeScale().subscribeVisibleLogicalRangeChange(range => {
+    if (range) volChart.timeScale().setVisibleLogicalRange(range);
+  });
+
+  // Crosshair OHLCV readout
+  lwChart.subscribeCrosshairMove(param => {
+    if (!param.time) { clearCrosshair(); return; }
+    const c = param.seriesData.get(candleSeries);
+    const v = param.seriesData.get(volumeSeries);
+    if (c) {
+      const d = new Date(param.time * 1000);
+      setText('xhair-time', d.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }));
+      setText('xhair-o', `O $${c.open.toFixed(2)}`);
+      setText('xhair-h', `H $${c.high.toFixed(2)}`);
+      setText('xhair-l', `L $${c.low.toFixed(2)}`);
+      setText('xhair-c', `C $${c.close.toFixed(2)}`);
+    }
+    if (v) setText('xhair-v', `Vol ${fmtVol(v.value)}`);
+  });
+
+  // Resize observer
+  new ResizeObserver(() => {
+    lwChart.applyOptions({ width: cc.clientWidth });
+    volChart.applyOptions({ width: vc.clientWidth });
+  }).observe(cc);
+}
+
+function clearCrosshair() {
+  ['xhair-time','xhair-o','xhair-h','xhair-l','xhair-c','xhair-v']
+    .forEach(id => document.getElementById(id).textContent = '');
+}
+
+function setText(id, val) { document.getElementById(id).textContent = val; }
+
+// ── Load a stock (quote + candles in parallel) ────────────────────────────────
+async function loadStock(symbol, period) {
+  currentSymbol = symbol.toUpperCase();
+  if (period) currentPeriod = period;
+
+  // Highlight selected card in grid
+  document.querySelectorAll('.stock-card').forEach(c => {
+    c.classList.toggle('selected', c.dataset.symbol === currentSymbol);
+  });
+
+  // Update period button state
+  document.querySelectorAll('.period-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.period === currentPeriod);
+  });
+
+  const [qRes, cRes] = await Promise.all([
+    apiCall('GET', `/api/v1/stocks/${currentSymbol}/quote`),
+    apiCall('GET', `/api/v1/stocks/${currentSymbol}/candles?period=${currentPeriod}`)
+  ]);
+
+  if (qRes.status === 200) updateHeader(qRes.data);
+  if (cRes.status === 200 && cRes.data.candles?.length > 0) updateChart(cRes.data.candles);
+}
+
+function updateHeader(q) {
+  setText('chart-symbol',   q.symbol);
+  setText('chart-name',     q.name);
+  setText('chart-exchange', q.exchange);
+  setText('chart-price',    `$${q.price.toFixed(2)}`);
+
+  const pos = q.change >= 0;
+  const el  = document.getElementById('chart-change');
+  el.textContent = `${pos ? '▲' : '▼'} $${Math.abs(q.change).toFixed(2)}`;
+  el.className   = `text-lg font-semibold ${pos ? 'text-green-400' : 'text-red-400'}`;
+  setText('chart-change-pct', `(${pos ? '+' : ''}${q.changePercent.toFixed(2)}%)`);
+
+  setText('stat-open', q.open      ? `$${q.open.toFixed(2)}`      : '—');
+  setText('stat-high', q.high      ? `$${q.high.toFixed(2)}`      : '—');
+  setText('stat-low',  q.low       ? `$${q.low.toFixed(2)}`       : '—');
+  setText('stat-vol',  q.volume    ?  fmtVol(q.volume)            : '—');
+  setText('stat-cap',  q.marketCap ?  fmtCap(q.marketCap)         : '—');
+}
+
+function updateChart(candles) {
+  const cData = candles.map(c => ({ time: c.time, open: c.open, high: c.high, low: c.low, close: c.close }));
+  const vData = candles.map(c => ({ time: c.time, value: c.volume, color: c.close >= c.open ? '#3fb95066' : '#f8514966' }));
+  candleSeries.setData(cData);
+  volumeSeries.setData(vData);
+  lwChart.timeScale().fitContent();
+}
+
+// ── Period buttons ────────────────────────────────────────────────────────────
+document.querySelectorAll('.period-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    currentPeriod = btn.dataset.period;
+    loadStock(currentSymbol, currentPeriod);
+  });
+});
+
+// ── Formatters ────────────────────────────────────────────────────────────────
+function fmtVol(v) {
+  if (v >= 1e9) return `${(v/1e9).toFixed(1)}B`;
+  if (v >= 1e6) return `${(v/1e6).toFixed(1)}M`;
+  if (v >= 1e3) return `${(v/1e3).toFixed(1)}K`;
+  return String(v);
+}
+function fmtCap(v) {
+  if (v >= 1e12) return `$${(v/1e12).toFixed(2)}T`;
+  if (v >= 1e9)  return `$${(v/1e9).toFixed(2)}B`;
+  return `$${v}`;
 }
 
 // ── User endpoints ────────────────────────────────────────────────────────────

@@ -5,42 +5,46 @@ import io.ktor.server.response.*
 import io.ktor.server.routing.*
 
 /**
- * Stock market routes — intentionally public (no JWT required).
+ * Stock market routes — all public (no JWT required).
  *
- * GET /api/v1/stocks               — paginated list with optional search/filter
- * GET /api/v1/stocks/{symbol}      — full detail for a single stock
+ * GET  /api/v1/stocks                        — live quotes for all tracked symbols
+ * GET  /api/v1/stocks/{symbol}/quote         — live quote for one symbol
+ * GET  /api/v1/stocks/{symbol}/candles       — OHLCV candle data for chart
  *
- * Query params for listing:
- *   search  — case-insensitive substring match on symbol or company name
- *   sector  — exact sector name (Technology, Financials, Healthcare, etc.)
- *   limit   — page size, default 20, max 100
- *   offset  — rows to skip, default 0
+ * Query params for candles:
+ *   period  — one of: 1d | 5d | 1mo | 3mo | 6mo | 1y | 5y  (default: 3mo)
  *
- * Example:
- *   GET /api/v1/stocks?search=apple&limit=5
- *   GET /api/v1/stocks?sector=Technology&limit=10&offset=10
- *   GET /api/v1/stocks/AAPL
+ * All responses are cached in Redis:
+ *   quotes  → 60 seconds
+ *   candles → 5 min (intraday) or 15 min (daily/weekly)
  */
 fun Route.stockRoutes(stockService: StockService) {
 
     route("/stocks") {
 
         // ── GET /api/v1/stocks ────────────────────────────────────────────────
+        // Live quotes for every tracked symbol in one response.
+        // Clients use this to populate the ticker bar and stock grid.
         get {
-            val search = call.request.queryParameters["search"]?.takeIf { it.isNotBlank() }
-            val sector = call.request.queryParameters["sector"]?.takeIf { it.isNotBlank() }
-            val limit  = call.request.queryParameters["limit"]?.toIntOrNull()  ?: 20
-            val offset = call.request.queryParameters["offset"]?.toIntOrNull() ?: 0
-
-            val result = stockService.listStocks(search, sector, limit, offset)
-            call.respond(HttpStatusCode.OK, result)
+            val quotes = stockService.getAllQuotes()
+            call.respond(HttpStatusCode.OK, quotes)
         }
 
-        // ── GET /api/v1/stocks/{symbol} ───────────────────────────────────────
-        get("/{symbol}") {
+        // ── GET /api/v1/stocks/{symbol}/quote ─────────────────────────────────
+        // Full real-time quote for a single ticker — open, high, low, volume, etc.
+        get("/{symbol}/quote") {
             val symbol = call.parameters["symbol"] ?: ""
-            val stock  = stockService.getStock(symbol)
-            call.respond(HttpStatusCode.OK, stock)
+            val quote  = stockService.getQuote(symbol)
+            call.respond(HttpStatusCode.OK, quote)
+        }
+
+        // ── GET /api/v1/stocks/{symbol}/candles ───────────────────────────────
+        // OHLCV candle history. period controls time range + bar interval.
+        get("/{symbol}/candles") {
+            val symbol = call.parameters["symbol"] ?: ""
+            val period = call.request.queryParameters["period"] ?: "3mo"
+            val candles = stockService.getCandles(symbol, period)
+            call.respond(HttpStatusCode.OK, candles)
         }
     }
 }

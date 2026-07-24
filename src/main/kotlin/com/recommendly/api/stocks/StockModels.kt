@@ -3,43 +3,46 @@ package com.recommendly.api.stocks
 import kotlinx.serialization.Serializable
 
 /**
- * Returned by GET /api/v1/stocks (listing / search).
- * Lean DTO — no PE ratio or market cap to keep list responses small.
+ * Current market quote for a single stock — returned by:
+ *   GET /api/v1/stocks          (list, all tracked symbols)
+ *   GET /api/v1/stocks/{symbol}/quote  (single symbol detail)
  */
 @Serializable
-data class StockSummaryDto(
+data class QuoteDto(
     val symbol:        String,
     val name:          String,
     val exchange:      String,
-    val sector:        String?,
-    val currentPrice:  Double?,
-    val changePercent: Double?   // 24-hour price change, e.g. 1.25 means +1.25%
+    val price:         Double,
+    val change:        Double,         // raw dollar change (e.g. +2.30)
+    val changePercent: Double,         // percentage change (e.g. +1.20)
+    val open:          Double?,
+    val high:          Double?,
+    val low:           Double?,
+    val prevClose:     Double?,
+    val volume:        Long,
+    val marketCap:     Long?
 )
 
 /**
- * Returned by GET /api/v1/stocks/{symbol} (full detail).
- * Includes all fields including valuation metrics.
+ * One OHLCV bar — used in the candlestick chart.
+ * [time] is a Unix epoch timestamp in SECONDS (what TradingView Lightweight Charts expects).
  */
 @Serializable
-data class StockDetailDto(
-    val symbol:        String,
-    val name:          String,
-    val exchange:      String,
-    val sector:        String?,
-    val currentPrice:  Double?,
-    val marketCap:     Long?,
-    val peRatio:       Double?,
-    val changePercent: Double?
+data class CandleDto(
+    val time:   Long,
+    val open:   Double,
+    val high:   Double,
+    val low:    Double,
+    val close:  Double,
+    val volume: Long
 )
 
 /**
- * Wrapper for paginated list responses.
- * All list endpoints use this shape so the client always knows the total count.
+ * Full candle-history response for one symbol + period.
  */
 @Serializable
-data class PagedResponse<T>(
-    val data:   List<T>,
-    val total:  Long,
-    val limit:  Int,
-    val offset: Int
+data class CandlesResponse(
+    val symbol:  String,
+    val period:  String,
+    val candles: List<CandleDto>
 )
