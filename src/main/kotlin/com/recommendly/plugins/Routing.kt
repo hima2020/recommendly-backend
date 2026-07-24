@@ -3,6 +3,8 @@ package com.recommendly.plugins
 import com.recommendly.api.auth.AuthService
 import com.recommendly.api.auth.authRoutes
 import com.recommendly.api.health.healthRoutes
+import com.recommendly.api.stocks.StockService
+import com.recommendly.api.stocks.stockRoutes
 import com.recommendly.api.users.UserService
 import com.recommendly.api.users.userRoutes
 import com.recommendly.common.cache.RedisFactory
@@ -19,9 +21,10 @@ import org.koin.ktor.ext.inject
  * Never use `val x by inject<>()` inside a Route extension function.
  */
 fun Application.configureRouting() {
-    val redis       by inject<RedisFactory>()
-    val authService by inject<AuthService>()
-    val userService by inject<UserService>()
+    val redis        by inject<RedisFactory>()
+    val authService  by inject<AuthService>()
+    val userService  by inject<UserService>()
+    val stockService by inject<StockService>()
 
     routing {
         // ── Static files (dashboard) ──────────────────────────────────────────
@@ -34,7 +37,7 @@ fun Application.configureRouting() {
             healthRoutes(redis)
             authRoutes(authService)
             userRoutes(userService)
-            // stockRoutes()   ← Phase 4
+            stockRoutes(stockService)
         }
     }
 }

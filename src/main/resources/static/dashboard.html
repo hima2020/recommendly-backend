@@ -60,10 +60,10 @@
     <button class="section-tab active text-left px-3 py-2 rounded-lg text-sm font-medium" data-section="auth">🔐 Auth</button>
     <button class="section-tab text-left px-3 py-2 rounded-lg text-sm font-medium text-gray-400" data-section="health">❤️ Health</button>
     <button class="section-tab text-left px-3 py-2 rounded-lg text-sm font-medium text-gray-400" data-section="users">👤 Users</button>
+    <button class="section-tab text-left px-3 py-2 rounded-lg text-sm font-medium text-gray-400" data-section="stocks">📈 Stocks</button>
     <!-- Future sections added here as phases progress -->
     <div class="border-t border-gray-800 mt-2 pt-2">
       <div class="text-xs text-gray-600 px-2 py-1">Coming soon</div>
-      <div class="px-3 py-2 text-sm text-gray-600">📈 Stocks</div>
       <div class="px-3 py-2 text-sm text-gray-600">🤖 AI Picks</div>
     </div>
   </aside>
@@ -213,6 +213,92 @@
           Update Profile →
         </button>
         <div id="updateme-response" class="mt-3 hidden"></div>
+      </div>
+    </div>
+
+    <!-- ═══ STOCKS SECTION ═══ -->
+    <div id="section-stocks" class="space-y-4 hidden">
+      <h2 class="text-lg font-bold text-white mb-4">📈 Stocks</h2>
+      <p class="text-sm text-gray-500 -mt-2 mb-4">Public endpoints — no login required.</p>
+
+      <!-- List / Search -->
+      <div class="endpoint-card bg-gray-900 border border-gray-800 rounded-xl p-5">
+        <div class="flex items-center gap-3 mb-4">
+          <span class="badge-get text-xs font-bold px-2 py-1 rounded">GET</span>
+          <code class="text-gray-300 text-sm">/api/v1/stocks</code>
+          <span class="ml-auto text-xs text-gray-500">List & search stocks</span>
+        </div>
+        <div class="grid grid-cols-4 gap-3 mb-3">
+          <div>
+            <label class="text-xs text-gray-500 block mb-1">Search (name / symbol)</label>
+            <input id="stocks-search" type="text" placeholder="e.g. apple or AAPL"
+              class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white" />
+          </div>
+          <div>
+            <label class="text-xs text-gray-500 block mb-1">Sector</label>
+            <select id="stocks-sector"
+              class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white">
+              <option value="">All sectors</option>
+              <option>Technology</option>
+              <option>Financials</option>
+              <option>Healthcare</option>
+              <option>Consumer</option>
+              <option>Energy</option>
+              <option>Telecom</option>
+            </select>
+          </div>
+          <div>
+            <label class="text-xs text-gray-500 block mb-1">Limit</label>
+            <input id="stocks-limit" type="number" value="20" min="1" max="100"
+              class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white" />
+          </div>
+          <div>
+            <label class="text-xs text-gray-500 block mb-1">Offset</label>
+            <input id="stocks-offset" type="number" value="0" min="0"
+              class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white" />
+          </div>
+        </div>
+        <button onclick="doListStocks()" class="bg-green-800 hover:bg-green-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
+          Fetch Stocks →
+        </button>
+        <!-- Compact stock table rendered inline after response -->
+        <div id="stocks-table-container" class="hidden mt-4">
+          <div class="text-xs text-gray-500 mb-2" id="stocks-count"></div>
+          <div class="overflow-x-auto rounded-lg border border-gray-800">
+            <table class="w-full text-sm">
+              <thead class="bg-gray-800 text-gray-400 text-xs uppercase">
+                <tr>
+                  <th class="px-3 py-2 text-left">Symbol</th>
+                  <th class="px-3 py-2 text-left">Name</th>
+                  <th class="px-3 py-2 text-left">Exchange</th>
+                  <th class="px-3 py-2 text-left">Sector</th>
+                  <th class="px-3 py-2 text-right">Price</th>
+                  <th class="px-3 py-2 text-right">24h</th>
+                </tr>
+              </thead>
+              <tbody id="stocks-table-body" class="divide-y divide-gray-800"></tbody>
+            </table>
+          </div>
+        </div>
+        <div id="stocks-list-response" class="mt-3 hidden"></div>
+      </div>
+
+      <!-- Detail by symbol -->
+      <div class="endpoint-card bg-gray-900 border border-gray-800 rounded-xl p-5">
+        <div class="flex items-center gap-3 mb-4">
+          <span class="badge-get text-xs font-bold px-2 py-1 rounded">GET</span>
+          <code class="text-gray-300 text-sm">/api/v1/stocks/<span class="text-indigo-400">{symbol}</span></code>
+          <span class="ml-auto text-xs text-gray-500">Full stock detail</span>
+        </div>
+        <div class="mb-3 max-w-xs">
+          <label class="text-xs text-gray-500 block mb-1">Ticker Symbol</label>
+          <input id="stock-symbol" type="text" placeholder="e.g. AAPL" value="AAPL"
+            class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white uppercase" />
+        </div>
+        <button onclick="doGetStock()" class="bg-green-800 hover:bg-green-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
+          Get Detail →
+        </button>
+        <div id="stock-detail-response" class="mt-3 hidden"></div>
       </div>
     </div>
 
@@ -417,6 +503,65 @@ async function doHealth() {
 async function doHealthReady() {
   const { status, data, ms } = await apiCall('GET', '/api/v1/health/ready');
   showResponse('health-ready-response', status, data, ms);
+}
+
+// ── Stocks endpoints ──────────────────────────────────────────────────────────
+async function doListStocks() {
+  const search = document.getElementById('stocks-search').value.trim();
+  const sector = document.getElementById('stocks-sector').value;
+  const limit  = document.getElementById('stocks-limit').value  || 20;
+  const offset = document.getElementById('stocks-offset').value || 0;
+
+  let url = `/api/v1/stocks?limit=${limit}&offset=${offset}`;
+  if (search) url += `&search=${encodeURIComponent(search)}`;
+  if (sector) url += `&sector=${encodeURIComponent(sector)}`;
+
+  const { status, data, ms } = await apiCall('GET', url);
+  showResponse('stocks-list-response', status, data, ms);
+
+  if (status === 200 && data.data?.length > 0) {
+    document.getElementById('stocks-table-container').classList.remove('hidden');
+    document.getElementById('stocks-list-response').classList.add('hidden');
+    document.getElementById('stocks-count').textContent =
+      `Showing ${data.data.length} of ${data.total} stocks`;
+
+    const tbody = document.getElementById('stocks-table-body');
+    tbody.innerHTML = data.data.map(s => {
+      const price   = s.currentPrice  != null ? `$${s.currentPrice.toFixed(2)}` : '—';
+      const chg     = s.changePercent != null ? s.changePercent.toFixed(2)      : null;
+      const chgHtml = chg == null ? '<td class="px-3 py-2 text-right text-gray-500">—</td>'
+        : chg >= 0
+          ? `<td class="px-3 py-2 text-right text-green-400">▲ ${chg}%</td>`
+          : `<td class="px-3 py-2 text-right text-red-400">▼ ${Math.abs(chg)}%</td>`;
+      return `<tr class="hover:bg-gray-800 cursor-pointer" onclick="document.getElementById('stock-symbol').value='${s.symbol}'; switchSection('stocks')">
+        <td class="px-3 py-2 font-mono font-bold text-indigo-400">${s.symbol}</td>
+        <td class="px-3 py-2 text-gray-200">${escapeHtml(s.name)}</td>
+        <td class="px-3 py-2 text-gray-400 text-xs">${s.exchange}</td>
+        <td class="px-3 py-2 text-gray-400 text-xs">${s.sector ?? '—'}</td>
+        <td class="px-3 py-2 text-right text-gray-200">${price}</td>
+        ${chgHtml}
+      </tr>`;
+    }).join('');
+  } else {
+    document.getElementById('stocks-table-container').classList.add('hidden');
+  }
+}
+
+async function doGetStock() {
+  const symbol = document.getElementById('stock-symbol').value.trim().toUpperCase();
+  if (!symbol) return;
+  const { status, data, ms } = await apiCall('GET', `/api/v1/stocks/${symbol}`);
+  showResponse('stock-detail-response', status, data, ms);
+}
+
+function switchSection(name) {
+  document.querySelectorAll('.section-tab').forEach(t => {
+    const active = t.dataset.section === name;
+    t.classList.toggle('active', active);
+    t.classList.toggle('text-gray-400', !active);
+  });
+  document.querySelectorAll('[id^="section-"]').forEach(s => s.classList.add('hidden'));
+  document.getElementById('section-' + name).classList.remove('hidden');
 }
 
 // ── User endpoints ────────────────────────────────────────────────────────────

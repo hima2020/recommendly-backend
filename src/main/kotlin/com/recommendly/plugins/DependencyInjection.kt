@@ -2,6 +2,8 @@ package com.recommendly.plugins
 
 import com.recommendly.api.auth.AuthRepository
 import com.recommendly.api.auth.AuthService
+import com.recommendly.api.stocks.StockRepository
+import com.recommendly.api.stocks.StockService
 import com.recommendly.api.users.UserRepository
 import com.recommendly.api.users.UserService
 import com.recommendly.common.cache.RedisFactory
@@ -29,6 +31,7 @@ fun Application.configureDependencyInjection() {
             infrastructureModule,
             authModule,
             userModule,
+            stockModule,
         )
     }
 }
@@ -58,4 +61,12 @@ val authModule = module {
 val userModule = module {
     single { UserRepository() }
     single { UserService(get()) }
+}
+
+/**
+ * Stocks module — public stock listing and detail endpoints.
+ */
+val stockModule = module {
+    single { StockRepository() }
+    single { StockService(get()) }
 }
