@@ -23,9 +23,8 @@ CREATE TABLE stocks (
 CREATE INDEX idx_stocks_exchange  ON stocks(exchange);
 CREATE INDEX idx_stocks_sector    ON stocks(sector);
 CREATE INDEX idx_stocks_is_active ON stocks(is_active);
--- Supports fast full-text search on name + symbol (used by /stocks?search=)
-CREATE EXTENSION IF NOT EXISTS pg_trgm;
-CREATE INDEX idx_stocks_name_trgm ON stocks USING gin (name gin_trgm_ops);
+-- B-tree index on name prefix searches (works without pg_trgm superuser privilege)
+CREATE INDEX idx_stocks_name      ON stocks(name);
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Seed data — a representative set of well-known stocks across sectors.
