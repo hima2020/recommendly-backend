@@ -4,6 +4,7 @@ import com.recommendly.common.database.dbQuery
 import com.recommendly.common.database.tables.StocksTable
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.like
 
 /**
  * Data access layer for stocks.

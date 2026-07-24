@@ -1,6 +1,7 @@
 package com.recommendly.common.database.tables
 
 import org.jetbrains.exposed.sql.Table
+import org.jetbrains.exposed.sql.kotlin.datetime.timestampWithTimeZone
 
 /**
  * Mirrors the `stocks` table created in V3__create_stocks_table.sql.
