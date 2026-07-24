@@ -9,22 +9,29 @@ import io.ktor.client.request.*
 import io.ktor.serialization.kotlinx.json.*
 import kotlinx.serialization.json.*
 import mu.KotlinLogging
+import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
 
 private val logger = KotlinLogging.logger {}
 
 /**
- * Fetches real-time stock quotes and OHLCV candle data from Yahoo Finance.
+ * Fetches real-time stock quotes and OHLCV candle data from Financial Modeling Prep (FMP).
  *
- * Why Yahoo Finance?
- * - No API key required for basic market data
- * - Returns real-time quotes + full candle history in one API call per request
- * - Reliable enough for development and moderate production load
+ * Why FMP over Yahoo Finance?
+ * - Yahoo Finance blocks datacenter / cloud-provider IPs (Hetzner, AWS, etc.)
+ * - FMP works from any IP including VPS/cloud servers
+ * - Free tier: 250 API calls/day — plenty for our 29-symbol batch (1 call per refresh)
+ * - Returns clean JSON with consistent field names
  *
- * For production at scale, swap this implementation with a paid provider
- * (Polygon.io, Finnhub, Bloomberg) — callers only depend on [LiveQuote] and
- * [Candle] data classes, not this class directly.
+ * API key is read from the FMP_API_KEY environment variable.
+ * Get a free key (no credit card) at https://financialmodelingprep.com/developer/docs/
  */
 class YahooFinanceService {
+
+    private val apiKey  = System.getenv("FMP_API_KEY") ?: ""
+    private val baseUrl = "https://financialmodelingprep.com/api/v3"
 
     private val client = HttpClient(CIO) {
         install(ContentNegotiation) {
@@ -45,25 +52,18 @@ class YahooFinanceService {
 
     /**
      * Fetches real-time quotes for up to 50 symbols in a single HTTP call.
-     * Returns an empty list on any error — callers handle that gracefully.
+     * FMP batch endpoint: GET /api/v3/quote/AAPL,MSFT,...?apikey=KEY
+     * Returns an empty list on any error — callers handle gracefully.
      */
     suspend fun fetchQuotes(symbols: List<String>): List<LiveQuote> {
         if (symbols.isEmpty()) return emptyList()
         val joined = symbols.joinToString(",")
-        val fields = "symbol,shortName,fullExchangeName," +
-            "regularMarketPrice,regularMarketChange,regularMarketChangePercent," +
-            "regularMarketOpen,regularMarketDayHigh,regularMarketDayLow," +
-            "regularMarketPreviousClose,regularMarketVolume,marketCap"
-        val url = "https://query1.finance.yahoo.com/v7/finance/quote" +
-            "?symbols=$joined&fields=$fields&lang=en-US&region=US"
+        val url    = "$baseUrl/quote/$joined?apikey=$apiKey"
 
         return try {
-            val body: JsonObject = client.get(url) { yahooHeaders() }.body()
-            body["quoteResponse"]
-                ?.jsonObject?.get("result")
-                ?.jsonArray
-                ?.mapNotNull { it.jsonObject.toLiveQuoteOrNull() }
-                ?: emptyList()
+            val element: JsonElement = client.get(url).body()
+            val array = element as? JsonArray ?: return emptyList()
+            array.mapNotNull { it.jsonObject.toLiveQuoteOrNull() }
         } catch (e: Exception) {
             logger.error(e) { "fetchQuotes failed for: $joined" }
             emptyList()
@@ -75,101 +75,114 @@ class YahooFinanceService {
      *
      * @param symbol  Ticker symbol, e.g. "AAPL"
      * @param period  One of: "1d" "5d" "1mo" "3mo" "6mo" "1y" "5y"
+     *
+     * Intraday periods (1d, 5d) → FMP historical-chart/{interval}/{symbol}
+     * Multi-day periods         → FMP historical-price-full/{symbol}?timeseries=N
      */
     suspend fun fetchCandles(symbol: String, period: String): List<Candle> {
-        val (interval, range) = periodToParams(period)
-        val url = "https://query1.finance.yahoo.com/v8/finance/chart/$symbol" +
-            "?interval=$interval&range=$range&lang=en-US"
-
         return try {
-            val body: JsonObject = client.get(url) { yahooHeaders() }.body()
-            parseCandles(body)
+            when (period) {
+                "1d"  -> fetchIntradayCandles(symbol, "5min")
+                "5d"  -> fetchIntradayCandles(symbol, "30min")
+                else  -> fetchDailyCandles(symbol, periodToDays(period))
+            }
         } catch (e: Exception) {
             logger.error(e) { "fetchCandles failed: $symbol ($period)" }
             emptyList()
         }
     }
 
-    // ── Helpers ───────────────────────────────────────────────────────────────
+    // ── Private helpers ───────────────────────────────────────────────────────
 
     /**
-     * Sets browser-like headers on every Yahoo Finance request.
-     * Without these, Yahoo's bot detection can return 401 or empty results.
+     * Intraday candles from FMP.
+     * Response is a JSON array sorted newest-first; we reverse to get chronological order.
+     * GET /api/v3/historical-chart/{interval}/{symbol}?apikey=KEY
      */
-    private fun HttpRequestBuilder.yahooHeaders() {
-        header("User-Agent",
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) " +
-            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-        header("Accept",          "application/json, text/plain, */*")
-        header("Accept-Language", "en-US,en;q=0.9")
-        header("Origin",          "https://finance.yahoo.com")
-        header("Referer",         "https://finance.yahoo.com/")
-    }
-
-    /** Maps human-readable period to Yahoo Finance interval + range params. */
-    private fun periodToParams(period: String): Pair<String, String> = when (period) {
-        "1d"  -> "5m"  to "1d"
-        "5d"  -> "30m" to "5d"
-        "1mo" -> "1d"  to "1mo"
-        "3mo" -> "1d"  to "3mo"
-        "6mo" -> "1wk" to "6mo"
-        "1y"  -> "1wk" to "1y"
-        "5y"  -> "1mo" to "5y"
-        else  -> "1d"  to "3mo"
+    private suspend fun fetchIntradayCandles(symbol: String, interval: String): List<Candle> {
+        val url    = "$baseUrl/historical-chart/$interval/$symbol?apikey=$apiKey"
+        val element: JsonElement = client.get(url).body()
+        val array = element as? JsonArray ?: return emptyList()
+        return array.mapNotNull { it.jsonObject.toIntradayCandleOrNull() }.reversed()
     }
 
     /**
-     * Parses the nested chart API response into a flat list of candles.
-     * Skips any bar where any OHLC value is null (incomplete intraday bar).
+     * Daily candles from FMP using the timeseries shortcut (last N trading days).
+     * Response is a JSON object with "historical" array sorted newest-first.
+     * GET /api/v3/historical-price-full/{symbol}?timeseries=N&apikey=KEY
      */
-    private fun parseCandles(json: JsonObject): List<Candle> {
-        val result = json["chart"]
-            ?.jsonObject?.get("result")
-            ?.jsonArray?.firstOrNull()?.jsonObject
-            ?: return emptyList()
-
-        val timestamps = result["timestamp"]?.jsonArray
-            ?.mapNotNull { it.jsonPrimitive.longOrNull }
-            ?: return emptyList()
-
-        val quoteBlock = result["indicators"]
-            ?.jsonObject?.get("quote")
-            ?.jsonArray?.firstOrNull()?.jsonObject
-            ?: return emptyList()
-
-        val opens   = quoteBlock["open"]?.jsonArray
-        val highs   = quoteBlock["high"]?.jsonArray
-        val lows    = quoteBlock["low"]?.jsonArray
-        val closes  = quoteBlock["close"]?.jsonArray
-        val volumes = quoteBlock["volume"]?.jsonArray
-
-        return timestamps.indices.mapNotNull { i ->
-            val open   = opens?.getOrNull(i)?.jsonPrimitive?.doubleOrNull   ?: return@mapNotNull null
-            val high   = highs?.getOrNull(i)?.jsonPrimitive?.doubleOrNull   ?: return@mapNotNull null
-            val low    = lows?.getOrNull(i)?.jsonPrimitive?.doubleOrNull    ?: return@mapNotNull null
-            val close  = closes?.getOrNull(i)?.jsonPrimitive?.doubleOrNull  ?: return@mapNotNull null
-            val volume = volumes?.getOrNull(i)?.jsonPrimitive?.longOrNull   ?: 0L
-            Candle(timestamps[i], open, high, low, close, volume)
-        }
+    private suspend fun fetchDailyCandles(symbol: String, timeseries: Int): List<Candle> {
+        val url    = "$baseUrl/historical-price-full/$symbol?timeseries=$timeseries&apikey=$apiKey"
+        val element: JsonElement = client.get(url).body()
+        val obj = element as? JsonObject ?: return emptyList()
+        return obj["historical"]
+            ?.jsonArray
+            ?.mapNotNull { it.jsonObject.toDailyCandleOrNull() }
+            ?.reversed()
+            ?: emptyList()
     }
+
+    /** Maps period codes to approximate number of trading days to fetch. */
+    private fun periodToDays(period: String): Int = when (period) {
+        "1mo" -> 30
+        "3mo" -> 90
+        "6mo" -> 180
+        "1y"  -> 365
+        "5y"  -> 1825
+        else  -> 90
+    }
+
+    // ── JSON mappers ──────────────────────────────────────────────────────────
 
     private fun JsonObject.toLiveQuoteOrNull(): LiveQuote? {
         val symbol = this["symbol"]?.jsonPrimitive?.contentOrNull ?: return null
-        val price  = this["regularMarketPrice"]?.jsonPrimitive?.doubleOrNull ?: return null
+        val price  = this["price"]?.jsonPrimitive?.doubleOrNull   ?: return null
         return LiveQuote(
             symbol        = symbol,
-            name          = this["shortName"]?.jsonPrimitive?.contentOrNull ?: symbol,
-            exchange      = this["fullExchangeName"]?.jsonPrimitive?.contentOrNull ?: "",
+            name          = this["name"]?.jsonPrimitive?.contentOrNull ?: symbol,
+            exchange      = this["exchange"]?.jsonPrimitive?.contentOrNull ?: "",
             price         = price,
-            change        = this["regularMarketChange"]?.jsonPrimitive?.doubleOrNull ?: 0.0,
-            changePercent = this["regularMarketChangePercent"]?.jsonPrimitive?.doubleOrNull ?: 0.0,
-            open          = this["regularMarketOpen"]?.jsonPrimitive?.doubleOrNull,
-            high          = this["regularMarketDayHigh"]?.jsonPrimitive?.doubleOrNull,
-            low           = this["regularMarketDayLow"]?.jsonPrimitive?.doubleOrNull,
-            prevClose     = this["regularMarketPreviousClose"]?.jsonPrimitive?.doubleOrNull,
-            volume        = this["regularMarketVolume"]?.jsonPrimitive?.longOrNull ?: 0L,
+            change        = this["change"]?.jsonPrimitive?.doubleOrNull ?: 0.0,
+            changePercent = this["changesPercentage"]?.jsonPrimitive?.doubleOrNull ?: 0.0,
+            open          = this["open"]?.jsonPrimitive?.doubleOrNull,
+            high          = this["dayHigh"]?.jsonPrimitive?.doubleOrNull,
+            low           = this["dayLow"]?.jsonPrimitive?.doubleOrNull,
+            prevClose     = this["previousClose"]?.jsonPrimitive?.doubleOrNull,
+            volume        = this["volume"]?.jsonPrimitive?.longOrNull ?: 0L,
             marketCap     = this["marketCap"]?.jsonPrimitive?.longOrNull
         )
+    }
+
+    /** FMP intraday date format: "2024-01-10 09:35:00" */
+    private val intradayFmt = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+
+    private fun JsonObject.toIntradayCandleOrNull(): Candle? {
+        val dateStr = this["date"]?.jsonPrimitive?.contentOrNull ?: return null
+        val open    = this["open"]?.jsonPrimitive?.doubleOrNull  ?: return null
+        val high    = this["high"]?.jsonPrimitive?.doubleOrNull  ?: return null
+        val low     = this["low"]?.jsonPrimitive?.doubleOrNull   ?: return null
+        val close   = this["close"]?.jsonPrimitive?.doubleOrNull ?: return null
+        val volume  = this["volume"]?.jsonPrimitive?.longOrNull  ?: 0L
+        val ts = runCatching {
+            LocalDateTime.parse(dateStr, intradayFmt).toEpochSecond(ZoneOffset.UTC)
+        }.getOrNull() ?: return null
+        return Candle(ts, open, high, low, close, volume)
+    }
+
+    /** FMP daily date format: "2024-01-10" */
+    private val dailyFmt = DateTimeFormatter.ofPattern("yyyy-MM-dd")
+
+    private fun JsonObject.toDailyCandleOrNull(): Candle? {
+        val dateStr = this["date"]?.jsonPrimitive?.contentOrNull ?: return null
+        val open    = this["open"]?.jsonPrimitive?.doubleOrNull  ?: return null
+        val high    = this["high"]?.jsonPrimitive?.doubleOrNull  ?: return null
+        val low     = this["low"]?.jsonPrimitive?.doubleOrNull   ?: return null
+        val close   = this["close"]?.jsonPrimitive?.doubleOrNull ?: return null
+        val volume  = this["volume"]?.jsonPrimitive?.longOrNull  ?: 0L
+        val ts = runCatching {
+            LocalDate.parse(dateStr, dailyFmt).atStartOfDay().toEpochSecond(ZoneOffset.UTC)
+        }.getOrNull() ?: return null
+        return Candle(ts, open, high, low, close, volume)
     }
 }
 
