@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Recommendly · API Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: 'Segoe UI', system-ui, sans-serif; }
+    .response-box { white-space: pre-wrap; word-break: break-all; font-family: 'Courier New', monospace; font-size: 12px; }
+    .badge-get    { background:#22c55e22; color:#22c55e; border:1px solid #22c55e44; }
+    .badge-post   { background:#3b82f622; color:#60a5fa; border:1px solid #3b82f644; }
+    .badge-delete { background:#ef444422; color:#f87171; border:1px solid #ef444444; }
+    .status-ok    { color: #22c55e; }
+    .status-err   { color: #f87171; }
+    .token-badge  { font-family: monospace; font-size: 10px; word-break: break-all; }
+    input, textarea { outline: none; }
+    input:focus, textarea:focus { border-color: #6366f1 !important; box-shadow: 0 0 0 2px #6366f133; }
+    .section-tab.active { background: #6366f1; color: white; }
+    .section-tab { cursor: pointer; transition: all 0.15s; }
+    .section-tab:hover:not(.active) { background: #1e1e2e; }
+    .endpoint-card { transition: all 0.2s; }
+    .endpoint-card:hover { border-color: #6366f155; }
+    .copy-btn:active { transform: scale(0.95); }
+    @keyframes pulse-dot { 0%,100%{opacity:1} 50%{opacity:0.4} }
+    .pulse { animation: pulse-dot 1.5s infinite; }
+    .spinner { animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body class="bg-gray-950 text-gray-200 min-h-screen">
+
+<!-- ── Top Nav ── -->
+<nav class="bg-gray-900 border-b border-gray-800 px-6 py-3 flex items-center justify-between sticky top-0 z-50">
+  <div class="flex items-center gap-3">
+    <span class="text-xl">📱</span>
+    <span class="font-bold text-white">Recommendly</span>
+    <span class="text-gray-500 text-sm">API Dashboard</span>
+  </div>
+  <div class="flex items-center gap-4">
+    <!-- Server status -->
+    <div class="flex items-center gap-2 text-sm" id="server-status">
+      <span class="w-2 h-2 rounded-full bg-gray-500 pulse" id="status-dot"></span>
+      <span id="status-text" class="text-gray-500">Checking...</span>
+    </div>
+    <!-- Auth state -->
+    <div class="text-sm px-3 py-1 rounded-full border" id="auth-badge"
+         style="border-color:#374151; color:#9ca3af;">
+      Not logged in
+    </div>
+  </div>
+</nav>
+
+<!-- ── Layout ── -->
+<div class="flex min-h-screen">
+
+  <!-- Sidebar -->
+  <aside class="w-52 bg-gray-900 border-r border-gray-800 p-3 flex flex-col gap-1 shrink-0">
+    <div class="text-xs text-gray-500 font-semibold uppercase tracking-wider px-2 py-1 mt-1">Sections</div>
+    <button class="section-tab active text-left px-3 py-2 rounded-lg text-sm font-medium" data-section="auth">🔐 Auth</button>
+    <button class="section-tab text-left px-3 py-2 rounded-lg text-sm font-medium text-gray-400" data-section="health">❤️ Health</button>
+    <!-- Future sections added here as phases progress -->
+    <div class="border-t border-gray-800 mt-2 pt-2">
+      <div class="text-xs text-gray-600 px-2 py-1">Coming soon</div>
+      <div class="px-3 py-2 text-sm text-gray-600">👤 Users</div>
+      <div class="px-3 py-2 text-sm text-gray-600">📈 Stocks</div>
+      <div class="px-3 py-2 text-sm text-gray-600">🤖 AI Picks</div>
+    </div>
+  </aside>
+
+  <!-- Main content -->
+  <main class="flex-1 p-6 overflow-y-auto">
+
+    <!-- Token banner -->
+    <div id="token-banner" class="hidden mb-5 bg-indigo-950 border border-indigo-800 rounded-xl p-4">
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-indigo-300 font-semibold text-sm">🎫 Active Session</span>
+        <button onclick="clearTokens()" class="text-xs text-red-400 hover:text-red-300 transition-colors">Logout</button>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <div class="text-xs text-gray-500 mb-1">Access Token (1h)</div>
+          <div id="access-token-display" class="token-badge text-green-400 break-all leading-relaxed"></div>
+        </div>
+        <div>
+          <div class="text-xs text-gray-500 mb-1">Refresh Token (30d)</div>
+          <div id="refresh-token-display" class="token-badge text-blue-400 break-all leading-relaxed"></div>
+        </div>
+      </div>
+      <div id="user-info" class="mt-2 pt-2 border-t border-indigo-800 text-xs text-gray-400"></div>
+    </div>
+
+    <!-- ═══ AUTH SECTION ═══ -->
+    <div id="section-auth" class="space-y-4">
+      <h2 class="text-lg font-bold text-white mb-4">🔐 Authentication</h2>
+
+      <!-- Register -->
+      <div class="endpoint-card bg-gray-900 border border-gray-800 rounded-xl p-5">
+        <div class="flex items-center gap-3 mb-4">
+          <span class="badge-post text-xs font-bold px-2 py-1 rounded">POST</span>
+          <code class="text-gray-300 text-sm">/api/v1/auth/register</code>
+          <span class="ml-auto text-xs text-gray-500">Create new account</span>
+        </div>
+        <div class="grid grid-cols-3 gap-3 mb-3">
+          <div>
+            <label class="text-xs text-gray-500 block mb-1">Email</label>
+            <input id="reg-email" type="email" value="test@example.com"
+              class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white" />
+          </div>
+          <div>
+            <label class="text-xs text-gray-500 block mb-1">Password</label>
+            <input id="reg-password" type="text" value="Test1234!"
+              class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white" />
+          </div>
+          <div>
+            <label class="text-xs text-gray-500 block mb-1">Display Name</label>
+            <input id="reg-name" type="text" value="Test User"
+              class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white" />
+          </div>
+        </div>
+        <button onclick="doRegister()" class="bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
+          Register →
+        </button>
+        <div id="reg-response" class="mt-3 hidden"></div>
+      </div>
+
+      <!-- Login -->
+      <div class="endpoint-card bg-gray-900 border border-gray-800 rounded-xl p-5">
+        <div class="flex items-center gap-3 mb-4">
+          <span class="badge-post text-xs font-bold px-2 py-1 rounded">POST</span>
+          <code class="text-gray-300 text-sm">/api/v1/auth/login</code>
+          <span class="ml-auto text-xs text-gray-500">Authenticate user</span>
+        </div>
+        <div class="grid grid-cols-2 gap-3 mb-3">
+          <div>
+            <label class="text-xs text-gray-500 block mb-1">Email</label>
+            <input id="login-email" type="email" value="test@example.com"
+              class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white" />
+          </div>
+          <div>
+            <label class="text-xs text-gray-500 block mb-1">Password</label>
+            <input id="login-password" type="text" value="Test1234!"
+              class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white" />
+          </div>
+        </div>
+        <button onclick="doLogin()" class="bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
+          Login →
+        </button>
+        <div id="login-response" class="mt-3 hidden"></div>
+      </div>
+
+      <!-- Refresh Token -->
+      <div class="endpoint-card bg-gray-900 border border-gray-800 rounded-xl p-5">
+        <div class="flex items-center gap-3 mb-4">
+          <span class="badge-post text-xs font-bold px-2 py-1 rounded">POST</span>
+          <code class="text-gray-300 text-sm">/api/v1/auth/refresh</code>
+          <span class="ml-auto text-xs text-gray-500">Get new access token</span>
+        </div>
+        <p class="text-xs text-gray-500 mb-3">Uses the refresh token from your active session automatically.</p>
+        <button onclick="doRefresh()" class="bg-blue-700 hover:bg-blue-600 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
+          Refresh Token →
+        </button>
+        <div id="refresh-response" class="mt-3 hidden"></div>
+      </div>
+
+      <!-- Logout -->
+      <div class="endpoint-card bg-gray-900 border border-gray-800 rounded-xl p-5">
+        <div class="flex items-center gap-3 mb-4">
+          <span class="badge-post text-xs font-bold px-2 py-1 rounded">POST</span>
+          <code class="text-gray-300 text-sm">/api/v1/auth/logout</code>
+          <span class="ml-auto text-xs text-gray-500">Revoke refresh token</span>
+        </div>
+        <p class="text-xs text-gray-500 mb-3">Invalidates the current refresh token (single device logout).</p>
+        <button onclick="doLogout()" class="bg-red-800 hover:bg-red-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
+          Logout →
+        </button>
+        <div id="logout-response" class="mt-3 hidden"></div>
+      </div>
+    </div>
+
+    <!-- ═══ HEALTH SECTION ═══ -->
+    <div id="section-health" class="space-y-4 hidden">
+      <h2 class="text-lg font-bold text-white mb-4">❤️ Health Checks</h2>
+
+      <!-- Basic health -->
+      <div class="endpoint-card bg-gray-900 border border-gray-800 rounded-xl p-5">
+        <div class="flex items-center gap-3 mb-4">
+          <span class="badge-get text-xs font-bold px-2 py-1 rounded">GET</span>
+          <code class="text-gray-300 text-sm">/api/v1/health</code>
+          <span class="ml-auto text-xs text-gray-500">Basic liveness check</span>
+        </div>
+        <button onclick="doHealth()" class="bg-green-800 hover:bg-green-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
+          Check →
+        </button>
+        <div id="health-response" class="mt-3 hidden"></div>
+      </div>
+
+      <!-- Readiness -->
+      <div class="endpoint-card bg-gray-900 border border-gray-800 rounded-xl p-5">
+        <div class="flex items-center gap-3 mb-4">
+          <span class="badge-get text-xs font-bold px-2 py-1 rounded">GET</span>
+          <code class="text-gray-300 text-sm">/api/v1/health/ready</code>
+          <span class="ml-auto text-xs text-gray-500">DB + Redis readiness</span>
+        </div>
+        <button onclick="doHealthReady()" class="bg-green-800 hover:bg-green-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
+          Check →
+        </button>
+        <div id="health-ready-response" class="mt-3 hidden"></div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+// ── State ─────────────────────────────────────────────────────────────────────
+let accessToken  = null;
+let refreshToken = null;
+let currentUser  = null;
+
+// ── Section tabs ──────────────────────────────────────────────────────────────
+document.querySelectorAll('.section-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.section-tab').forEach(t => {
+      t.classList.remove('active');
+      t.classList.add('text-gray-400');
+    });
+    tab.classList.add('active');
+    tab.classList.remove('text-gray-400');
+
+    document.querySelectorAll('[id^="section-"]').forEach(s => s.classList.add('hidden'));
+    document.getElementById('section-' + tab.dataset.section).classList.remove('hidden');
+  });
+});
+
+// ── Server status polling ─────────────────────────────────────────────────────
+async function checkServerStatus() {
+  try {
+    const r = await fetch('/api/v1/health', { signal: AbortSignal.timeout(3000) });
+    const dot  = document.getElementById('status-dot');
+    const text = document.getElementById('status-text');
+    if (r.ok) {
+      dot.className  = 'w-2 h-2 rounded-full bg-green-500';
+      text.textContent = 'Online';
+      text.className = 'text-green-400 text-sm';
+    } else {
+      dot.className  = 'w-2 h-2 rounded-full bg-yellow-500 pulse';
+      text.textContent = 'Degraded';
+      text.className = 'text-yellow-400 text-sm';
+    }
+  } catch {
+    const dot  = document.getElementById('status-dot');
+    const text = document.getElementById('status-text');
+    dot.className  = 'w-2 h-2 rounded-full bg-red-500 pulse';
+    text.textContent = 'Offline';
+    text.className = 'text-red-400 text-sm';
+  }
+}
+checkServerStatus();
+setInterval(checkServerStatus, 30_000);
+
+// ── Response renderer ─────────────────────────────────────────────────────────
+function showResponse(elementId, status, data, durationMs) {
+  const el = document.getElementById(elementId);
+  el.classList.remove('hidden');
+  const ok       = status >= 200 && status < 300;
+  const color    = ok ? 'border-green-800 bg-green-950' : 'border-red-800 bg-red-950';
+  const statColor= ok ? 'text-green-400' : 'text-red-400';
+  const pretty   = JSON.stringify(data, null, 2);
+  el.innerHTML = `
+    <div class="border ${color} rounded-lg p-3">
+      <div class="flex items-center gap-3 mb-2">
+        <span class="${statColor} font-bold text-sm">${status}</span>
+        <span class="text-gray-500 text-xs">${durationMs}ms</span>
+      </div>
+      <div class="response-box text-gray-300 max-h-60 overflow-y-auto">${escapeHtml(pretty)}</div>
+    </div>`;
+}
+
+function escapeHtml(str) {
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+async function apiCall(method, path, body = null, token = null) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const opts = { method, headers };
+  if (body) opts.body = JSON.stringify(body);
+  const t0 = Date.now();
+  const r  = await fetch(path, opts);
+  const ms = Date.now() - t0;
+  let data;
+  try { data = await r.json(); } catch { data = {}; }
+  return { status: r.status, data, ms };
+}
+
+// ── Token management ──────────────────────────────────────────────────────────
+function storeTokens(response) {
+  if (!response.accessToken) return;
+  accessToken  = response.accessToken;
+  refreshToken = response.refreshToken;
+  currentUser  = response.user;
+  updateTokenBanner();
+}
+
+function updateTokenBanner() {
+  const banner = document.getElementById('token-banner');
+  const badge  = document.getElementById('auth-badge');
+  if (!accessToken) {
+    banner.classList.add('hidden');
+    badge.textContent = 'Not logged in';
+    badge.style.borderColor = '#374151';
+    badge.style.color = '#9ca3af';
+    return;
+  }
+  banner.classList.remove('hidden');
+  document.getElementById('access-token-display').textContent  = accessToken.slice(0, 60) + '…';
+  document.getElementById('refresh-token-display').textContent = refreshToken ? refreshToken.slice(0, 40) + '…' : '—';
+  document.getElementById('user-info').textContent =
+    currentUser ? `👤 ${currentUser.displayName} (${currentUser.email}) · ${currentUser.isPremium ? '⭐ Premium' : 'Free'}` : '';
+  badge.textContent = currentUser?.displayName ?? 'Logged in';
+  badge.style.borderColor = '#4f46e5';
+  badge.style.color = '#a5b4fc';
+}
+
+function clearTokens() {
+  accessToken = refreshToken = currentUser = null;
+  updateTokenBanner();
+}
+
+// ── Auth endpoints ────────────────────────────────────────────────────────────
+async function doRegister() {
+  const body = {
+    email:       document.getElementById('reg-email').value,
+    password:    document.getElementById('reg-password').value,
+    displayName: document.getElementById('reg-name').value
+  };
+  const { status, data, ms } = await apiCall('POST', '/api/v1/auth/register', body);
+  showResponse('reg-response', status, data, ms);
+  if (status === 201) storeTokens(data);
+}
+
+async function doLogin() {
+  const body = {
+    email:    document.getElementById('login-email').value,
+    password: document.getElementById('login-password').value
+  };
+  const { status, data, ms } = await apiCall('POST', '/api/v1/auth/login', body);
+  showResponse('login-response', status, data, ms);
+  if (status === 200) storeTokens(data);
+}
+
+async function doRefresh() {
+  if (!refreshToken) {
+    showResponse('refresh-response', 400, { message: 'No refresh token — please login first' }, 0);
+    return;
+  }
+  const { status, data, ms } = await apiCall('POST', '/api/v1/auth/refresh', { refreshToken });
+  showResponse('refresh-response', status, data, ms);
+  if (status === 200) storeTokens(data);
+}
+
+async function doLogout() {
+  if (!refreshToken) {
+    showResponse('logout-response', 400, { message: 'No refresh token — already logged out' }, 0);
+    return;
+  }
+  const { status, data, ms } = await apiCall('POST', '/api/v1/auth/logout', { refreshToken });
+  showResponse('logout-response', status, data, ms);
+  if (status === 204 || status === 200) clearTokens();
+}
+
+// ── Health endpoints ──────────────────────────────────────────────────────────
+async function doHealth() {
+  const { status, data, ms } = await apiCall('GET', '/api/v1/health');
+  showResponse('health-response', status, data, ms);
+}
+
+async function doHealthReady() {
+  const { status, data, ms } = await apiCall('GET', '/api/v1/health/ready');
+  showResponse('health-ready-response', status, data, ms);
+}
+</script>
+</body>
+</html>
