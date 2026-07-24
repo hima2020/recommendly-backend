@@ -59,10 +59,10 @@
     <div class="text-xs text-gray-500 font-semibold uppercase tracking-wider px-2 py-1 mt-1">Sections</div>
     <button class="section-tab active text-left px-3 py-2 rounded-lg text-sm font-medium" data-section="auth">🔐 Auth</button>
     <button class="section-tab text-left px-3 py-2 rounded-lg text-sm font-medium text-gray-400" data-section="health">❤️ Health</button>
+    <button class="section-tab text-left px-3 py-2 rounded-lg text-sm font-medium text-gray-400" data-section="users">👤 Users</button>
     <!-- Future sections added here as phases progress -->
     <div class="border-t border-gray-800 mt-2 pt-2">
       <div class="text-xs text-gray-600 px-2 py-1">Coming soon</div>
-      <div class="px-3 py-2 text-sm text-gray-600">👤 Users</div>
       <div class="px-3 py-2 text-sm text-gray-600">📈 Stocks</div>
       <div class="px-3 py-2 text-sm text-gray-600">🤖 AI Picks</div>
     </div>
@@ -175,6 +175,44 @@
           Logout →
         </button>
         <div id="logout-response" class="mt-3 hidden"></div>
+      </div>
+    </div>
+
+    <!-- ═══ USERS SECTION ═══ -->
+    <div id="section-users" class="space-y-4 hidden">
+      <h2 class="text-lg font-bold text-white mb-4">👤 User Profile</h2>
+      <p class="text-sm text-gray-500 -mt-2 mb-4">These endpoints require a valid access token — login first via the Auth tab.</p>
+
+      <!-- GET /me -->
+      <div class="endpoint-card bg-gray-900 border border-gray-800 rounded-xl p-5">
+        <div class="flex items-center gap-3 mb-4">
+          <span class="badge-get text-xs font-bold px-2 py-1 rounded">GET</span>
+          <code class="text-gray-300 text-sm">/api/v1/users/me</code>
+          <span class="ml-auto text-xs text-gray-500">Fetch own profile</span>
+        </div>
+        <p class="text-xs text-gray-500 mb-3">Returns the authenticated user's profile. Uses the access token from your active session.</p>
+        <button onclick="doGetMe()" class="bg-green-800 hover:bg-green-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
+          Get My Profile →
+        </button>
+        <div id="getme-response" class="mt-3 hidden"></div>
+      </div>
+
+      <!-- PATCH /me -->
+      <div class="endpoint-card bg-gray-900 border border-gray-800 rounded-xl p-5">
+        <div class="flex items-center gap-3 mb-4">
+          <span class="text-xs font-bold px-2 py-1 rounded" style="background:#a855f722;color:#c084fc;border:1px solid #a855f744;">PATCH</span>
+          <code class="text-gray-300 text-sm">/api/v1/users/me</code>
+          <span class="ml-auto text-xs text-gray-500">Update display name</span>
+        </div>
+        <div class="mb-3">
+          <label class="text-xs text-gray-500 block mb-1">New Display Name</label>
+          <input id="update-name" type="text" placeholder="e.g. Ibrahim Hany"
+            class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white" />
+        </div>
+        <button onclick="doUpdateMe()" class="bg-purple-800 hover:bg-purple-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
+          Update Profile →
+        </button>
+        <div id="updateme-response" class="mt-3 hidden"></div>
       </div>
     </div>
 
@@ -379,6 +417,37 @@ async function doHealth() {
 async function doHealthReady() {
   const { status, data, ms } = await apiCall('GET', '/api/v1/health/ready');
   showResponse('health-ready-response', status, data, ms);
+}
+
+// ── User endpoints ────────────────────────────────────────────────────────────
+async function doGetMe() {
+  if (!accessToken) {
+    showResponse('getme-response', 401, { message: 'Not logged in — please login first via the Auth tab' }, 0);
+    return;
+  }
+  const { status, data, ms } = await apiCall('GET', '/api/v1/users/me', null, accessToken);
+  showResponse('getme-response', status, data, ms);
+  // Keep currentUser in sync if name was updated elsewhere
+  if (status === 200) { currentUser = data; updateTokenBanner(); }
+}
+
+async function doUpdateMe() {
+  if (!accessToken) {
+    showResponse('updateme-response', 401, { message: 'Not logged in — please login first via the Auth tab' }, 0);
+    return;
+  }
+  const displayName = document.getElementById('update-name').value.trim();
+  if (!displayName) {
+    showResponse('updateme-response', 400, { message: 'Display name cannot be empty' }, 0);
+    return;
+  }
+  const { status, data, ms } = await apiCall('PATCH', '/api/v1/users/me', { displayName }, accessToken);
+  showResponse('updateme-response', status, data, ms);
+  if (status === 200) {
+    // Update the token banner immediately so the nav shows the new name
+    currentUser = data;
+    updateTokenBanner();
+  }
 }
 </script>
 </body>

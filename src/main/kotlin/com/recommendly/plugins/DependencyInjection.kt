@@ -2,6 +2,8 @@ package com.recommendly.plugins
 
 import com.recommendly.api.auth.AuthRepository
 import com.recommendly.api.auth.AuthService
+import com.recommendly.api.users.UserRepository
+import com.recommendly.api.users.UserService
 import com.recommendly.common.cache.RedisFactory
 import com.recommendly.common.config.AppConfig
 import com.recommendly.common.security.JwtService
@@ -26,6 +28,7 @@ fun Application.configureDependencyInjection() {
         modules(
             infrastructureModule,
             authModule,
+            userModule,
         )
     }
 }
@@ -47,4 +50,12 @@ val authModule = module {
     single { JwtService(get<AppConfig>().jwt) }
     single { AuthRepository() }
     single { AuthService(get(), get(), get()) }
+}
+
+/**
+ * Users module — profile reads and updates for authenticated users.
+ */
+val userModule = module {
+    single { UserRepository() }
+    single { UserService(get()) }
 }

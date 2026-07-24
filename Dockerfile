@@ -19,17 +19,22 @@ FROM eclipse-temurin:21-jre-alpine
 
 WORKDIR /app
 
-# Non-root user for security — never run as root in production
-RUN addgroup -S recommendly && adduser -S recommendly -G recommendly
+# Non-root user for security — never run as root in production.
+# chown /app BEFORE switching to non-root so COPY commands (which run as root)
+# produce files owned by the app user, and the JVM can write temp files.
+RUN addgroup -S recommendly && \
+    adduser -S recommendly -G recommendly && \
+    chown -R recommendly:recommendly /app
+
 USER recommendly
 
 # Copy the built JAR from the build stage
-COPY --from=build /app/build/libs/recommendly-backend-all.jar app.jar
+COPY --from=build --chown=recommendly:recommendly /app/build/libs/recommendly-backend-all.jar app.jar
 
 # Copy SQL migration files directly into the runtime image.
 # This bypasses Flyway's classpath scanner (which can misidentify filenames
 # inside fat JARs) and uses a reliable filesystem path instead.
-COPY --from=build /app/src/main/resources/db/migration /app/db/migration
+COPY --from=build --chown=recommendly:recommendly /app/src/main/resources/db/migration /app/db/migration
 
 EXPOSE 8080
 

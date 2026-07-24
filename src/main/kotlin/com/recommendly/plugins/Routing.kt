@@ -3,6 +3,8 @@ package com.recommendly.plugins
 import com.recommendly.api.auth.AuthService
 import com.recommendly.api.auth.authRoutes
 import com.recommendly.api.health.healthRoutes
+import com.recommendly.api.users.UserService
+import com.recommendly.api.users.userRoutes
 import com.recommendly.common.cache.RedisFactory
 import io.ktor.server.application.*
 import io.ktor.server.http.content.*
@@ -19,6 +21,7 @@ import org.koin.ktor.ext.inject
 fun Application.configureRouting() {
     val redis       by inject<RedisFactory>()
     val authService by inject<AuthService>()
+    val userService by inject<UserService>()
 
     routing {
         // ── Static files (dashboard) ──────────────────────────────────────────
@@ -30,8 +33,8 @@ fun Application.configureRouting() {
         route("/api/v1") {
             healthRoutes(redis)
             authRoutes(authService)
-            // userRoutes()    ← Phase 3
-            // stockRoutes()   ← Phase 3
+            userRoutes(userService)
+            // stockRoutes()   ← Phase 4
         }
     }
 }
