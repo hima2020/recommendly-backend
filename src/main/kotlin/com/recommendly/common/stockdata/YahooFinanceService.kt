@@ -17,12 +17,12 @@ private val logger = KotlinLogging.logger {}
  *
  * Why Yahoo Finance?
  * - No API key required for basic market data
- * - Returns real-time quotes + full candle history
+ * - Returns real-time quotes + full candle history in one API call per request
  * - Reliable enough for development and moderate production load
  *
  * For production at scale, swap this implementation with a paid provider
- * (Polygon.io, Finnhub, Bloomberg) without changing any callers — they all
- * depend on [LiveQuote] and [Candle] data classes, not this class directly.
+ * (Polygon.io, Finnhub, Bloomberg) — callers only depend on [LiveQuote] and
+ * [Candle] data classes, not this class directly.
  */
 class YahooFinanceService {
 
@@ -30,56 +30,40 @@ class YahooFinanceService {
         install(ContentNegotiation) {
             json(Json {
                 ignoreUnknownKeys = true
-                isLenient = true
+                isLenient         = true
                 coerceInputValues = true
             })
         }
         install(HttpTimeout) {
-            requestTimeoutMillis  = 8_000
-            connectTimeoutMillis  = 4_000
-            socketTimeoutMillis   = 8_000
+            requestTimeoutMillis = 10_000
+            connectTimeoutMillis = 5_000
+            socketTimeoutMillis  = 10_000
         }
-    }
-
-    // Browser-like headers to avoid being blocked by Yahoo's bot detection
-    private val commonHeaders: HeadersBuilder.() -> Unit = {
-        append("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) " +
-            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-        append("Accept", "application/json, text/plain, */*")
-        append("Accept-Language", "en-US,en;q=0.9")
-        append("Origin", "https://finance.yahoo.com")
-        append("Referer", "https://finance.yahoo.com/")
     }
 
     // ── Public API ────────────────────────────────────────────────────────────
 
     /**
      * Fetches real-time quotes for up to 50 symbols in a single HTTP call.
-     * Returns an empty list on any error — callers should handle that gracefully.
+     * Returns an empty list on any error — callers handle that gracefully.
      */
     suspend fun fetchQuotes(symbols: List<String>): List<LiveQuote> {
         if (symbols.isEmpty()) return emptyList()
         val joined = symbols.joinToString(",")
+        val fields = "symbol,shortName,fullExchangeName," +
+            "regularMarketPrice,regularMarketChange,regularMarketChangePercent," +
+            "regularMarketOpen,regularMarketDayHigh,regularMarketDayLow," +
+            "regularMarketPreviousClose,regularMarketVolume,marketCap"
+        val url = "https://query1.finance.yahoo.com/v7/finance/quote" +
+            "?symbols=$joined&fields=$fields&lang=en-US&region=US"
+
         return try {
-            val fields = listOf(
-                "symbol", "shortName", "fullExchangeName",
-                "regularMarketPrice", "regularMarketChange",
-                "regularMarketChangePercent", "regularMarketOpen",
-                "regularMarketDayHigh", "regularMarketDayLow",
-                "regularMarketPreviousClose", "regularMarketVolume", "marketCap"
-            ).joinToString(",")
-
-            val url = "https://query1.finance.yahoo.com/v7/finance/quote" +
-                "?symbols=$joined&fields=$fields&lang=en-US&region=US"
-
-            val json: JsonObject = client.get(url) { headers(commonHeaders) }.body()
-
-            json["quoteResponse"]
+            val body: JsonObject = client.get(url) { yahooHeaders() }.body()
+            body["quoteResponse"]
                 ?.jsonObject?.get("result")
                 ?.jsonArray
                 ?.mapNotNull { it.jsonObject.toLiveQuoteOrNull() }
                 ?: emptyList()
-
         } catch (e: Exception) {
             logger.error(e) { "fetchQuotes failed for: $joined" }
             emptyList()
@@ -94,20 +78,33 @@ class YahooFinanceService {
      */
     suspend fun fetchCandles(symbol: String, period: String): List<Candle> {
         val (interval, range) = periodToParams(period)
+        val url = "https://query1.finance.yahoo.com/v8/finance/chart/$symbol" +
+            "?interval=$interval&range=$range&lang=en-US"
+
         return try {
-            val url = "https://query1.finance.yahoo.com/v8/finance/chart/$symbol" +
-                "?interval=$interval&range=$range&lang=en-US"
-
-            val json: JsonObject = client.get(url) { headers(commonHeaders) }.body()
-            parseCandles(json)
-
+            val body: JsonObject = client.get(url) { yahooHeaders() }.body()
+            parseCandles(body)
         } catch (e: Exception) {
-            logger.error(e) { "fetchCandles failed for: $symbol ($period)" }
+            logger.error(e) { "fetchCandles failed: $symbol ($period)" }
             emptyList()
         }
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /**
+     * Sets browser-like headers on every Yahoo Finance request.
+     * Without these, Yahoo's bot detection can return 401 or empty results.
+     */
+    private fun HttpRequestBuilder.yahooHeaders() {
+        header("User-Agent",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) " +
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+        header("Accept",          "application/json, text/plain, */*")
+        header("Accept-Language", "en-US,en;q=0.9")
+        header("Origin",          "https://finance.yahoo.com")
+        header("Referer",         "https://finance.yahoo.com/")
+    }
 
     /** Maps human-readable period to Yahoo Finance interval + range params. */
     private fun periodToParams(period: String): Pair<String, String> = when (period) {
@@ -123,7 +120,7 @@ class YahooFinanceService {
 
     /**
      * Parses the nested chart API response into a flat list of candles.
-     * Skips any candle where any OHLC field is null (incomplete intraday bar).
+     * Skips any bar where any OHLC value is null (incomplete intraday bar).
      */
     private fun parseCandles(json: JsonObject): List<Candle> {
         val result = json["chart"]
@@ -131,9 +128,9 @@ class YahooFinanceService {
             ?.jsonArray?.firstOrNull()?.jsonObject
             ?: return emptyList()
 
-        val timestamps = result["timestamp"]?.jsonArray?.mapNotNull {
-            it.jsonPrimitive.longOrNull
-        } ?: return emptyList()
+        val timestamps = result["timestamp"]?.jsonArray
+            ?.mapNotNull { it.jsonPrimitive.longOrNull }
+            ?: return emptyList()
 
         val quoteBlock = result["indicators"]
             ?.jsonObject?.get("quote")
@@ -147,12 +144,12 @@ class YahooFinanceService {
         val volumes = quoteBlock["volume"]?.jsonArray
 
         return timestamps.indices.mapNotNull { i ->
-            val open   = opens?.get(i)?.jsonPrimitive?.doubleOrNull   ?: return@mapNotNull null
-            val high   = highs?.get(i)?.jsonPrimitive?.doubleOrNull   ?: return@mapNotNull null
-            val low    = lows?.get(i)?.jsonPrimitive?.doubleOrNull    ?: return@mapNotNull null
-            val close  = closes?.get(i)?.jsonPrimitive?.doubleOrNull  ?: return@mapNotNull null
-            val volume = volumes?.get(i)?.jsonPrimitive?.longOrNull   ?: 0L
-            Candle(timestamp = timestamps[i], open, high, low, close, volume)
+            val open   = opens?.getOrNull(i)?.jsonPrimitive?.doubleOrNull   ?: return@mapNotNull null
+            val high   = highs?.getOrNull(i)?.jsonPrimitive?.doubleOrNull   ?: return@mapNotNull null
+            val low    = lows?.getOrNull(i)?.jsonPrimitive?.doubleOrNull    ?: return@mapNotNull null
+            val close  = closes?.getOrNull(i)?.jsonPrimitive?.doubleOrNull  ?: return@mapNotNull null
+            val volume = volumes?.getOrNull(i)?.jsonPrimitive?.longOrNull   ?: 0L
+            Candle(timestamps[i], open, high, low, close, volume)
         }
     }
 
@@ -176,7 +173,7 @@ class YahooFinanceService {
     }
 }
 
-// ── Domain models (internal — never serialized directly to API responses) ─────
+// ── Domain models ─────────────────────────────────────────────────────────────
 
 data class LiveQuote(
     val symbol:        String,
@@ -194,7 +191,7 @@ data class LiveQuote(
 )
 
 data class Candle(
-    val timestamp: Long,   // Unix epoch in SECONDS (as returned by Yahoo Finance)
+    val timestamp: Long,   // Unix epoch in SECONDS
     val open:      Double,
     val high:      Double,
     val low:       Double,
