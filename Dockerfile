@@ -23,8 +23,13 @@ WORKDIR /app
 RUN addgroup -S recommendly && adduser -S recommendly -G recommendly
 USER recommendly
 
-# Copy only the built JAR from the build stage
+# Copy the built JAR from the build stage
 COPY --from=build /app/build/libs/recommendly-backend-all.jar app.jar
+
+# Copy SQL migration files directly into the runtime image.
+# This bypasses Flyway's classpath scanner (which can misidentify filenames
+# inside fat JARs) and uses a reliable filesystem path instead.
+COPY --from=build /app/src/main/resources/db/migration /app/db/migration
 
 EXPOSE 8080
 

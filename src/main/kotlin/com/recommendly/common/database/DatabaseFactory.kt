@@ -60,11 +60,18 @@ object DatabaseFactory {
     }
 
     private fun runMigrations(dataSource: HikariDataSource) {
+        // Use filesystem: path so Flyway reads SQL files directly from disk.
+        // classpath: scanning inside fat JARs can fail the filename convention
+        // check even with correctly-named files (Flyway 10 known quirk).
+        // The Dockerfile copies migration files to /app/db/migration at build time.
+        val migrationsPath = System.getenv("FLYWAY_MIGRATIONS_PATH")
+            ?: "filesystem:/app/db/migration"
+
         Flyway.configure()
             .dataSource(dataSource)
-            .locations("classpath:db/migration")
+            .locations(migrationsPath)
             .baselineOnMigrate(true)
-            .baselineVersion("0")   // ← treat "0" as baseline so V1+ all run
+            .baselineVersion("0")
             .load()
             .migrate()
     }
