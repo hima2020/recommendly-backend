@@ -39,10 +39,6 @@ class YahooFinanceService {
             connectTimeoutMillis  = 4_000
             socketTimeoutMillis   = 8_000
         }
-        engine {
-            // Shared thread pool size for all HTTP calls
-            threadsCount = 4
-        }
     }
 
     // Browser-like headers to avoid being blocked by Yahoo's bot detection
