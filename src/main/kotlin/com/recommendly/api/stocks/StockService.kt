@@ -1,9 +1,8 @@
 package com.recommendly.api.stocks
 
 import com.recommendly.common.cache.RedisFactory
-import com.recommendly.common.stockdata.LiveQuote
 import com.recommendly.common.stockdata.YahooFinanceService
-import com.recommendly.plugins.NotFoundException
+import com.recommendly.common.stockdata.LiveQuote
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.decodeFromString
@@ -13,127 +12,63 @@ import mu.KotlinLogging
 
 private val logger = KotlinLogging.logger {}
 
-/**
- * Business logic for the Stocks feature.
- *
- * Data flow:
- * 1. Check Redis cache (fast, in-memory)
- * 2. Cache miss → call Yahoo Finance API (external HTTP)
- * 3. Write result to Redis with TTL
- * 4. Return data
- *
- * Cache TTLs:
- * - All quotes:  60 seconds  (refresh roughly every minute)
- * - Candles 1d:  5 minutes   (intraday — bars update every 5min anyway)
- * - Candles other: 15 minutes (daily/weekly data changes infrequently)
- */
 class StockService(
     private val yahoo: YahooFinanceService,
     private val redis: RedisFactory
 ) {
-    private val json = Json {
-        ignoreUnknownKeys = true
-        encodeDefaults    = true
-    }
+    // No hardcoded symbols — Mubasher returns all EGX stocks dynamically
 
-    companion object {
-        /**
-         * The symbols this app tracks. In a future phase this will be stored
-         * in the DB so admins can add/remove symbols without a code deploy.
-         */
-        val TRACKED_SYMBOLS = listOf(
-            "AAPL", "MSFT", "GOOGL", "META",  "NVDA",
-            "AMZN", "TSLA", "INTC",  "AMD",   "ORCL",
-            "JPM",  "BAC",  "GS",    "V",     "MA",
-            "JNJ",  "UNH",  "PFE",   "ABBV",  "MRK",
-            "WMT",  "HD",   "NKE",   "SBUX",
-            "XOM",  "CVX",  "COP",
-            "T",    "VZ"
-        )
+    // ── Public API ────────────────────────────────────────────────────────────
 
-        private const val QUOTES_TTL_SEC  = 60L
-        private const val CANDLES_1D_TTL  = 300L   // 5 min
-        private const val CANDLES_TTL     = 900L   // 15 min
-    }
-
-    // ── Public API ─────────────────────────────────────────────────────────────
-
-    /**
-     * Returns live quotes for all tracked symbols.
-     * All 29 symbols are fetched in a single Yahoo Finance API call.
-     */
+    /** Returns all EGX stocks. Cached in Redis for 60 seconds. */
     suspend fun getAllQuotes(): List<QuoteDto> {
-        val key = "stock:quotes:all"
-        val cached = redisGet(key)
+        val cacheKey = "egx:quotes:all"
+        val cached = withContext(Dispatchers.IO) { redis.sync().get(cacheKey) }
         if (cached != null) {
-            logger.debug { "Cache HIT: $key" }
-            return json.decodeFromString(cached)
+            return try { Json.decodeFromString(cached) } catch (_: Exception) { emptyList() }
         }
 
-        logger.debug { "Cache MISS: $key — fetching from Yahoo Finance" }
-        val quotes = yahoo.fetchQuotes(TRACKED_SYMBOLS).map { it.toDto() }
-        redisSetEx(key, QUOTES_TTL_SEC, json.encodeToString(quotes))
+        val quotes = yahoo.fetchQuotes().map { it.toDto() }
+        if (quotes.isNotEmpty()) {
+            val json = Json.encodeToString(quotes)
+            withContext(Dispatchers.IO) { redis.sync().setex(cacheKey, 60L, json) }
+        }
         return quotes
     }
 
     /**
-     * Returns the live quote for a single symbol.
-     * Uses the all-quotes cache if warm, otherwise fetches individually.
+     * Returns a single stock quote by EGX code, e.g. "SWDY".
+     * Fetches from the cached all-quotes list — no extra API call.
      */
     suspend fun getQuote(symbol: String): QuoteDto {
-        val upper = symbol.trim().uppercase()
-        val key   = "stock:quote:$upper"
-        val cached = redisGet(key)
-        if (cached != null) {
-            logger.debug { "Cache HIT: $key" }
-            return json.decodeFromString(cached)
-        }
-
-        logger.debug { "Cache MISS: $key — fetching from Yahoo Finance" }
-        val quote = yahoo.fetchQuotes(listOf(upper)).firstOrNull()?.toDto()
-            ?: throw NotFoundException("Stock '$upper' not found or not available")
-
-        redisSetEx(key, QUOTES_TTL_SEC, json.encodeToString(quote))
-        return quote
+        val all = getAllQuotes()
+        return all.find { it.symbol.equals(symbol, ignoreCase = true) }
+            ?: throw com.recommendly.common.exceptions.AppException(
+                com.recommendly.common.exceptions.ErrorCode.NOT_FOUND,
+                "Stock '$symbol' not found on EGX"
+            )
     }
 
-    /**
-     * Returns OHLCV candlestick data for one symbol + time period.
-     *
-     * @param period "1d" | "5d" | "1mo" | "3mo" | "6mo" | "1y" | "5y"
-     */
+    /** Returns OHLCV candles for a symbol and period. Cached 5–15 minutes. */
     suspend fun getCandles(symbol: String, period: String): CandlesResponse {
-        val upper     = symbol.trim().uppercase()
-        val safePeriod = period.trim().ifBlank { "3mo" }
-        val key       = "stock:candles:$upper:$safePeriod"
-        val ttl       = if (safePeriod == "1d") CANDLES_1D_TTL else CANDLES_TTL
+        val cacheKey = "egx:candles:$symbol:$period"
+        val ttlSecs  = if (period == "1d" || period == "5d") 300L else 900L
 
-        val cached = redisGet(key)
+        val cached = withContext(Dispatchers.IO) { redis.sync().get(cacheKey) }
         if (cached != null) {
-            logger.debug { "Cache HIT: $key" }
-            return json.decodeFromString(cached)
+            return try { Json.decodeFromString(cached) } catch (_: Exception) {
+                CandlesResponse(symbol, period, emptyList())
+            }
         }
 
-        logger.debug { "Cache MISS: $key — fetching from Yahoo Finance" }
-        val candles = yahoo.fetchCandles(upper, safePeriod).map {
+        val candles  = yahoo.fetchCandles(symbol, period).map {
             CandleDto(it.timestamp, it.open, it.high, it.low, it.close, it.volume)
         }
-
-        val response = CandlesResponse(upper, safePeriod, candles)
-        redisSetEx(key, ttl, json.encodeToString(response))
+        val response = CandlesResponse(symbol, period, candles)
+        val json     = Json.encodeToString(response)
+        withContext(Dispatchers.IO) { redis.sync().setex(cacheKey, ttlSecs, json) }
         return response
     }
-
-    // ── Redis helpers (IO dispatcher — sync Lettuce commands are blocking) ────
-
-    private suspend fun redisGet(key: String): String? = withContext(Dispatchers.IO) {
-        runCatching { redis.commands.get(key) }.getOrNull()
-    }
-
-    private suspend fun redisSetEx(key: String, ttl: Long, value: String) =
-        withContext(Dispatchers.IO) {
-            runCatching { redis.commands.setex(key, ttl, value) }
-        }
 
     // ── Mapper ────────────────────────────────────────────────────────────────
 
